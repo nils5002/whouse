@@ -66,12 +66,13 @@ export function Sidebar({ items, activePage, onSelect, mobileOpen, onCloseMobile
         </nav>
 
         <div className="mt-8 rounded-2xl bg-gradient-to-br from-brand-700 to-brand-500 p-4 text-brand-50">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em]">Live-Verfuegbarkeit</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em]">Live-Verfügbarkeit</p>
           <p className="mt-2 text-sm leading-relaxed text-brand-100">
-            87 Assets sind sofort einsatzbereit. 4 Rueckgaben sind ueberfaellig.
+            87 Assets sind sofort einsatzbereit. 4 Rückgaben sind überfällig.
           </p>
         </div>
       </aside>
     </>
   );
 }
+

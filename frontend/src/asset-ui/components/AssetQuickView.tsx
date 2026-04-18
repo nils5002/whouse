@@ -1,4 +1,6 @@
 import { CalendarClock, ClipboardCheck, Wrench, X } from 'lucide-react';
+import { getAssetQrCode } from '../qr';
+import { AssetQrCard } from './AssetQrCard';
 import { StatusBadge } from './StatusBadge';
 import type { Asset } from '../types';
 
@@ -6,10 +8,13 @@ type AssetQuickViewProps = {
   asset: Asset | null;
   onClose: () => void;
   onOpenDetail: (assetId: string) => void;
+  onReserve: (assetId: string) => void;
+  onCheckout: (assetId: string) => void;
 };
 
-export function AssetQuickView({ asset, onClose, onOpenDetail }: AssetQuickViewProps) {
+export function AssetQuickView({ asset, onClose, onOpenDetail, onReserve, onCheckout }: AssetQuickViewProps) {
   if (!asset) return null;
+  const qrValue = getAssetQrCode(asset);
 
   return (
     <div className="fixed inset-0 z-40">
@@ -63,7 +68,7 @@ export function AssetQuickView({ asset, onClose, onOpenDetail }: AssetQuickViewP
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
               <CalendarClock className="h-3.5 w-3.5" />
-              Naechste Reservierung
+              Nächste Reservierung
             </p>
             <p className="mt-2 text-sm font-medium text-slate-900">{asset.nextReservation}</p>
           </div>
@@ -74,18 +79,27 @@ export function AssetQuickView({ asset, onClose, onOpenDetail }: AssetQuickViewP
             </p>
             <p className="mt-2 text-sm font-medium text-slate-900">{asset.maintenanceState}</p>
           </div>
+
+          <AssetQrCard
+            qrValue={qrValue}
+            assetName={asset.name}
+            tagNumber={asset.tagNumber}
+            compact
+          />
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
           <button
             type="button"
             className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            onClick={() => onReserve(asset.id)}
           >
             Reservieren
           </button>
           <button
             type="button"
             className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            onClick={() => onCheckout(asset.id)}
           >
             Ausgeben
           </button>
@@ -101,3 +115,4 @@ export function AssetQuickView({ asset, onClose, onOpenDetail }: AssetQuickViewP
     </div>
   );
 }
+

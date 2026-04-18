@@ -1,74 +1,187 @@
-# iCloud Sorter Web
+# cloud_web
 
-Web-Oberflaeche und HTTP-API fuer das bestehende `cloud`-Projekt. Das Backend nutzt weiterhin die Logik aus `cloud/cloud.py`, packt sie aber in einen FastAPI-Dienst mit Job-Verwaltung und Live-Logs. Das Frontend ist ein React/Vite-Client, der den Lauf konfiguriert und ueberwacht.
+Professionelle Fullstack-Struktur fuer iCloud-Sorter + WMS mit FastAPI, SQLAlchemy, Alembic und React/Vite.
 
-## Struktur
+## Architektur (aktuell)
 
-```
+```text
 cloud_web/
-|-- backend/
-|   |-- app/
-|   |   |-- main.py            # FastAPI App & Endpunkte
-|   |   |-- models.py          # Pydantic Modelle
-|   |   |-- services/
-|   |   |   |-- job_manager.py  # Verwaltung paralleler Laeufe
-|   |   |   `-- sorter_job.py   # Wrapper um cloud.cloud mit Logging & 2FA
-|   |   `-- utils.py           # OCR- und Dateityp-Erkennung
-|   `-- requirements.txt
-`-- frontend/
-    |-- package.json          # React + Vite Setup
-    |-- src/
-    |   |-- App.tsx           # UI mit Formularen, Log, 2FA Dialog
-    |   |-- components/       # JobLog & StatusBadge
-    |   `-- types.ts          # Typdefinitionen fuer API Payloads
-    `-- vite.config.ts
+├── backend/
+│   ├── alembic/
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions/
+│   ├── alembic.ini
+│   ├── Dockerfile
+│   ├── app/
+│   │   ├── config/
+│   │   │   └── settings.py
+│   │   ├── database/
+│   │   │   ├── base.py
+│   │   │   ├── models.py
+│   │   │   ├── seed_from_wms_json.py
+│   │   │   └── session.py
+│   │   ├── repositories/
+│   │   │   ├── asset_repository.py
+│   │   │   ├── hardware_import_repository.py
+│   │   │   └── wms_repository.py
+│   │   ├── routes/
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py
+│   │   │   ├── db_assets.py
+│   │   │   ├── defaults.py
+│   │   │   ├── hardware_import.py
+│   │   │   ├── health.py
+│   │   │   ├── jobs.py
+│   │   │   ├── llm.py
+│   │   │   └── wms.py
+│   │   ├── schemas/
+│   │   │   ├── asset.py
+│   │   │   ├── hardware_import.py
+│   │   │   ├── job.py
+│   │   │   └── wms.py
+│   │   ├── services/
+│   │   │   ├── auth_service.py
+│   │   │   ├── excel_import_service.py
+│   │   │   ├── hardware_import/
+│   │   │   │   ├── importer.py
+│   │   │   │   ├── mapper.py
+│   │   │   │   ├── parser.py
+│   │   │   │   ├── types.py
+│   │   │   │   └── validator.py
+│   │   │   ├── job_manager.py
+│   │   │   ├── llm_service.py
+│   │   │   ├── sorter_job.py
+│   │   │   ├── wms_service.py
+│   │   │   └── wms_store.py  # legacy json store
+│   │   ├── errors.py
+│   │   └── main.py
+│   └── requirements.txt
+├── frontend/
+│   └── src/
+│       ├── asset-ui/
+│       ├── components/
+│       │   └── WmsPageView.tsx
+│       ├── config/
+│       │   └── navigation.ts
+│       ├── hooks/
+│       │   ├── useTheme.ts
+│       │   └── useWmsController.ts
+│       ├── services/
+│       │   └── wmsApi.ts
+│       └── App.tsx
+├── Hardwarebestand/
+├── .env.example
+└── docker-compose.yml
 ```
 
-## Backend starten
-
-Voraussetzung: Das bestehende Python-Umfeld, in dem `cloud/cloud.py` bereits laeuft (inklusive Abhaengigkeiten wie `pyicloud`, `PyPDF2`, `python-docx`, OCR-Pakete ...).
+## Backend lokal starten
 
 ```powershell
-cd cloud_web\backend
-python -m venv .venv             # optional
-.venv\Scripts\activate          # Windows PowerShell
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Hinweise:
-- `main.py` ergaenzt den `PYTHONPATH` automatisch so, dass das Nachbarprojekt `cloud/` gefunden wird. Starte daher den Server innerhalb dieses Repositorys.
-- Die wichtigsten Endpunkte:
-  - `GET /api/defaults` - liefert Voreinstellungen, erkannte OCR-Engines, Standard-Dateitypen.
-  - `POST /api/jobs` - startet einen Sortierlauf und gibt eine Job-ID zurueck.
-  - `GET /api/jobs/{id}` - Status + Log eines Jobs (Polling fuer das Frontend).
-  - `POST /api/jobs/{id}/2fa` - akzeptiert den Zwei-Faktor-Code, falls `cloud.connect_icloud` ihn anfordert.
-  - `POST /api/jobs/{id}/stop` - bricht den Lauf ab.
-  - `GET /api/llm/models` - liest verfuegbare Modelle aus einem OpenAI/Ollama-kompatiblen Endpoint.
-- Logs werden im Speicher gehalten (letzte 1500 Zeilen) und als Stringliste geliefert.
+## Datenbank
+
+Standard ist SQLite:
+- `DATABASE_URL=sqlite:///./app/data/app.db`
+- `DB_AUTO_CREATE_SCHEMA=true` (dev-friendly auto `create_all`)
+
+Fuer produktive/saubere Migrationen:
+- `DB_AUTO_CREATE_SCHEMA=false`
+- nur Alembic (`alembic upgrade head`)
+
+Optional PostgreSQL via Docker:
+
+```powershell
+docker compose up -d postgres backend
+```
+
+## .env Beispiel
+
+```dotenv
+APP_ENV=development
+DATABASE_URL=postgresql+psycopg://cloud_user:cloud_password@postgres:5432/cloud_web
+DB_AUTO_CREATE_SCHEMA=false
+CORS_ORIGINS=*
+WMS_SEED_LEGACY_ON_STARTUP=true
+WMS_LEGACY_JSON_PATH=app/data/wms_db.json
+HARDWARE_IMPORT_PATH=/app/data/hardware_imports
+OPENAI_API_KEY=
+OPENAI_BASE_URL=
+VITE_API_BASE=http://127.0.0.1:8000
+```
+
+## Hardware Excel-Import
+
+Der Import ist als Pipeline gebaut:
+- `parser`: liest gueltige Excel-Dateien (`.xlsx`, `.xlsm`)
+- `validator`: prueft Pflichtfelder und Formate (IP, MAC)
+- `mapper`: mappt Excel-Zeile auf Asset-Payload
+- `importer`: idempotentes Upsert ueber `serial_number`
+
+API:
+- `POST /api/import/hardware?dry_run=false` startet den Import
+- `GET /api/import/hardware/{run_id}` liefert Status + Fehlerzeilen
+
+Beispiel:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/api/import/hardware?dry_run=true"
+```
+
+Import-Logs:
+- `hardware_import_runs` (Run-Metadaten)
+- `hardware_import_row_errors` (Zeilenfehler)
+
+## Docker + Import-Ordner
+
+Der Importpfad wird nicht im Code hart kodiert. Die App liest nur `HARDWARE_IMPORT_PATH`.
+
+`docker-compose.yml` mountet den lokalen Bestand in den Container:
+- `./Hardwarebestand:/app/data/hardware_imports:ro`
+
+Damit gilt:
+1. Dateien lokal in `Hardwarebestand/` ablegen.
+2. Container starten.
+3. Import-Endpoint aufrufen.
+4. Daten landen idempotent in der DB (Create/Update, keine Serial-Duplikate).
+
+## WMS: JSON -> DB
+
+Aktive WMS-Endpunkte (`/api/wms/*`) laufen ueber SQL-Repository/Service.
+
+Legacy-Import beim Startup:
+- `WMS_SEED_LEGACY_ON_STARTUP=true`
+- `WMS_LEGACY_JSON_PATH=app/data/wms_db.json`
+
+`backend/app/services/wms_store.py` bleibt vorerst als Legacy-Komponente erhalten.
 
 ## Frontend starten
 
 ```powershell
-cd cloud_web\frontend
+cd frontend
 npm install
-npm run dev          # startet Frontend und Backend gemeinsam
+npm run dev
 ```
 
-Der Dev-Task verwendet `concurrently` und ruft intern `npm run dev:backend` (uvicorn) sowie `npm run dev:frontend` (Vite) auf.
-- Falls du nur das Frontend brauchst: `npm run dev:frontend`
-- Falls du das Backend separat starten willst: `npm run dev:backend`
+## Frontend + Backend mit einem Befehl starten
 
-Standardmaessig erwartet das Frontend das Backend unter `http://localhost:8000`. Bei Bedarf kann in der Entwicklungsumgebung `VITE_API_BASE` gesetzt werden (z. B. `.env` oder Kommandozeile) - ansonsten greift der Default.
+```powershell
+cd D:\DEV\cloud_web
+npm run dev
+```
 
-## Umgang mit Zwei-Faktor-Authentifizierung
+API-Basis:
+- `VITE_API_BASE=http://127.0.0.1:8000`
 
-Wenn iCloud einen 2FA-Code verlangt, setzt der Backend-Job den Status `awaiting_2fa` und blockiert, bis der Code ueber `POST /api/jobs/{id}/2fa` uebermittelt wird. Das React-Frontend zeigt dafuer automatisch einen Dialog an.
+## API Hinweis
 
-## Weiteres
-
-- Im Frontend kannst du im Abschnitt "Zugangsdaten & LLM" mit dem Button "Anmelden" den iCloud-Login testen. Optionaler 2FA-Code zeigt dir sofort, ob die Anmeldung klappt.
-- Die OCR-Erkennung erfolgt wie in der Desktop-Variante. Falls keine Engine verfuegbar ist, kann trotzdem sortiert werden (Textextraktion aus PDF/TXT funktioniert weiterhin).
-- `dry_run` erlaubt das Durchspielen ohne tatsaechliches Verschieben. Fuer echte Laeufe den Haken entfernen.
-- Die Job-Verwaltung laesst momentan nur einen parallelen Lauf zu. Weitere Startversuche liefern `409` (Konflikt).
-# Warehouse2.0
+- Bestehende WMS-Endpunkte (`/api/wms/*`) bleiben erhalten.
+- DB-CRUD-Beispielroute: `/api/db/assets`.
+- Neuer Import-Endpoint: `/api/import/hardware`.

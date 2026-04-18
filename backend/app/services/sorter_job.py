@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
 
-from ..models import JobStatus, SortConfig
+from ..schemas.job import JobStatus, SortConfig
 
 
 class SorterJob:

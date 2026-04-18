@@ -1,25 +1,41 @@
 import { CalendarClock, ClipboardList, PenSquare, RotateCcw, ShieldCheck, Wrench } from 'lucide-react';
+import { AssetQrCard } from '../components/AssetQrCard';
 import { StatusBadge } from '../components/StatusBadge';
+import { getAssetQrCode } from '../qr';
 import type { ActivityItem, Asset } from '../types';
 
 type AssetDetailPageProps = {
   asset: Asset | null;
   activities: ActivityItem[];
+  onReserveAsset: (assetId: string) => void;
+  onCheckoutAsset: (assetId: string) => void;
+  onCheckinAsset: (assetId: string) => void;
+  onSetMaintenance: (assetId: string) => void;
+  onEditAsset: (assetId: string) => void;
 };
 
-export function AssetDetailPage({ asset, activities }: AssetDetailPageProps) {
+export function AssetDetailPage({
+  asset,
+  activities,
+  onReserveAsset,
+  onCheckoutAsset,
+  onCheckinAsset,
+  onSetMaintenance,
+  onEditAsset,
+}: AssetDetailPageProps) {
   if (!asset) {
     return (
       <section className="surface-card animate-fade-up">
         <h2 className="text-xl font-semibold text-slate-900">Asset-Detail</h2>
         <p className="mt-2 text-sm text-slate-500">
-          Bitte ein Asset in der Inventaransicht auswaehlen, um Details zu sehen.
+          Bitte ein Asset in der Inventaransicht auswählen, um Details zu sehen.
         </p>
       </section>
     );
   }
 
   const timeline = activities.filter((item) => item.assetId === asset.id);
+  const qrValue = getAssetQrCode(asset);
 
   return (
     <section className="space-y-5">
@@ -32,19 +48,34 @@ export function AssetDetailPage({ asset, activities }: AssetDetailPageProps) {
           </p>
         </div>
         <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
-          <button className="w-full rounded-xl bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 sm:w-auto">
-            Reservieren
+          <button
+            className="w-full rounded-xl bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 sm:w-auto"
+            onClick={() => onReserveAsset(asset.id)}
+          >
+            Verleihen
           </button>
-          <button className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:w-auto">
+          <button
+            className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:w-auto"
+            onClick={() => onCheckoutAsset(asset.id)}
+          >
             Ausgeben
           </button>
-          <button className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto">
-            Zuruecknehmen
+          <button
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
+            onClick={() => onCheckinAsset(asset.id)}
+          >
+            Zurücknehmen
           </button>
-          <button className="w-full rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100 sm:w-auto">
+          <button
+            className="w-full rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100 sm:w-auto"
+            onClick={() => onSetMaintenance(asset.id)}
+          >
             In Wartung setzen
           </button>
-          <button className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto">
+          <button
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
+            onClick={() => onEditAsset(asset.id)}
+          >
             Bearbeiten
           </button>
         </div>
@@ -72,7 +103,7 @@ export function AssetDetailPage({ asset, activities }: AssetDetailPageProps) {
                   <dd className="font-medium">{asset.assignedTo}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-brand-100">Naechste Rueckgabe</dt>
+                  <dt className="text-brand-100">Nächste Rückgabe</dt>
                   <dd className="font-medium">{asset.nextReturn}</dd>
                 </div>
               </dl>
@@ -110,7 +141,7 @@ export function AssetDetailPage({ asset, activities }: AssetDetailPageProps) {
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                   <CalendarClock className="h-3.5 w-3.5" />
-                  Naechste Reservierung
+                  Nächste Reservierung
                 </p>
                 <p className="mt-2 text-sm font-medium text-slate-900">{asset.nextReservation}</p>
               </div>
@@ -130,6 +161,8 @@ export function AssetDetailPage({ asset, activities }: AssetDetailPageProps) {
               </p>
               <p className="mt-2 text-sm text-slate-700">{asset.notes}</p>
             </div>
+
+            <AssetQrCard qrValue={qrValue} assetName={asset.name} tagNumber={asset.tagNumber} />
           </div>
         </div>
       </article>
@@ -158,9 +191,10 @@ export function AssetDetailPage({ asset, activities }: AssetDetailPageProps) {
         </div>
         <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-700">
           <Wrench className="h-4 w-4" />
-          Wartungsfreigabe erforderlich vor naechster Ausgabe
+          Wartungsfreigabe erforderlich vor nächster Ausgabe
         </div>
       </article>
     </section>
   );
 }
+

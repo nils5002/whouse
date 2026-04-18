@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Dict, Optional
 
-from ..models import SortConfig
+from ..schemas.job import SortConfig
 from .sorter_job import SorterJob
 
 

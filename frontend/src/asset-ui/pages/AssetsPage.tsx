@@ -2,15 +2,29 @@ import { Filter, Plus, ScanLine, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AssetQuickView } from '../components/AssetQuickView';
 import { StatusBadge } from '../components/StatusBadge';
+import { useAppDialog } from '../../components/dialogs/AppDialogProvider';
 import type { Asset } from '../types';
 
 type AssetsPageProps = {
   assets: Asset[];
   initialSearch?: string;
   onOpenDetail: (assetId: string) => void;
+  onCreateAsset: () => void;
+  onReserveAsset: (assetId: string) => void;
+  onCheckoutAsset: (assetId: string) => void;
+  onCheckinAsset: (assetId: string) => void;
 };
 
-export function AssetsPage({ assets, initialSearch, onOpenDetail }: AssetsPageProps) {
+export function AssetsPage({
+  assets,
+  initialSearch,
+  onOpenDetail,
+  onCreateAsset,
+  onReserveAsset,
+  onCheckoutAsset,
+  onCheckinAsset,
+}: AssetsPageProps) {
+  const { prompt, alert } = useAppDialog();
   const [search, setSearch] = useState(initialSearch ?? '');
   const [category, setCategory] = useState('Alle Kategorien');
   const [location, setLocation] = useState('Alle Standorte');
@@ -33,7 +47,7 @@ export function AssetsPage({ assets, initialSearch, onOpenDetail }: AssetsPagePr
         const matchesCategory = category === 'Alle Kategorien' || asset.category === category;
         const matchesLocation = location === 'Alle Standorte' || asset.location === location;
         const matchesStatus = status === 'Alle Status' || asset.status === status;
-        const matchesAvailable = !onlyAvailable || asset.status === 'Verfuegbar';
+        const matchesAvailable = !onlyAvailable || asset.status === 'Verfügbar';
         const matchesBroken = !onlyBroken || ['Defekt', 'In Wartung'].includes(asset.status);
         return (
           matchesSearch &&
@@ -53,31 +67,72 @@ export function AssetsPage({ assets, initialSearch, onOpenDetail }: AssetsPagePr
     setSearch(initialSearch ?? '');
   }, [initialSearch]);
 
+  const resetFilters = () => {
+    setSearch('');
+    setCategory('Alle Kategorien');
+    setLocation('Alle Standorte');
+    setStatus('Alle Status');
+    setOnlyAvailable(false);
+    setOnlyBroken(false);
+  };
+
+  const openByQrOrTag = async () => {
+    const input = await prompt({
+      title: 'Gerät suchen',
+      message: 'Inventarnummer oder Seriennummer',
+      placeholder: 'z. B. IMP-... oder SN-...',
+      submitLabel: 'Suchen',
+    });
+    if (!input?.trim()) return;
+    const needle = input.trim().toLowerCase();
+    const match = assets.find(
+      (asset) =>
+        asset.tagNumber.toLowerCase() === needle ||
+        asset.serialNumber.toLowerCase() === needle,
+    );
+    if (!match) {
+      await alert({
+        title: 'Keine Übereinstimmung',
+        message: 'Kein Asset mit dieser Inventar- oder Seriennummer gefunden.',
+      });
+      return;
+    }
+    setQuickViewId(match.id);
+  };
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Inventar / Assets</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Asset-Liste</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Suche, filtere und verwalte den kompletten Hardware-Bestand.
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Inventar</p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Gerätebestand</h2>
+          <p className="mt-1 text-sm text-slate-500">Suchen, filtern und direkt bearbeiten.</p>
         </div>
         <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
-          <button className="w-full rounded-xl bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 sm:w-auto">
+          <button
+            className="w-full rounded-xl bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 sm:w-auto"
+            onClick={onCreateAsset}
+          >
             <span className="inline-flex items-center gap-2">
               <Plus className="h-4 w-4" />
-              Asset hinzufuegen
+              Asset hinzufügen
             </span>
           </button>
-          <button className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:w-auto">
-            Reservieren
-          </button>
-          <button className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto">
+          <button
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
+            onClick={() => {
+              if (filteredAssets[0]) onCheckoutAsset(filteredAssets[0].id);
+            }}
+          >
             Ausgeben
           </button>
-          <button className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto">
-            Zuruecknehmen
+          <button
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
+            onClick={() => {
+              if (filteredAssets[0]) onCheckinAsset(filteredAssets[0].id);
+            }}
+          >
+            Zurücknehmen
           </button>
         </div>
       </div>
@@ -121,11 +176,19 @@ export function AssetsPage({ assets, initialSearch, onOpenDetail }: AssetsPagePr
             ))}
           </select>
           <div className="flex items-center gap-2 xl:col-span-2">
-            <button className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50">
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
+              onClick={resetFilters}
+            >
               <Filter className="h-4 w-4" />
-              Filter
+              Reset
             </button>
-            <button className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50">
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
+              onClick={() => {
+                void openByQrOrTag();
+              }}
+            >
               <ScanLine className="h-4 w-4" />
               QR
             </button>
@@ -139,7 +202,7 @@ export function AssetsPage({ assets, initialSearch, onOpenDetail }: AssetsPagePr
               onChange={(event) => setOnlyAvailable(event.target.checked)}
               className="rounded border-slate-300"
             />
-            Nur verfuegbare Assets
+            Nur verfügbare Assets
           </label>
           <label className="inline-flex items-center gap-2 text-slate-600">
             <input
@@ -162,7 +225,7 @@ export function AssetsPage({ assets, initialSearch, onOpenDetail }: AssetsPagePr
                 <th className="px-3 py-2">Standort</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Zugewiesen an</th>
-                <th className="px-3 py-2">Naechste Rueckgabe</th>
+                <th className="px-3 py-2">Nächste Rückgabe</th>
                 <th className="px-3 py-2">QR / Inventar</th>
                 <th className="px-3 py-2 text-right">Aktion</th>
               </tr>
@@ -232,7 +295,10 @@ export function AssetsPage({ assets, initialSearch, onOpenDetail }: AssetsPagePr
         asset={quickViewAsset}
         onClose={() => setQuickViewId(null)}
         onOpenDetail={onOpenDetail}
+        onReserve={onReserveAsset}
+        onCheckout={onCheckoutAsset}
       />
     </section>
   );
 }
+

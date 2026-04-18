@@ -1,34 +1,31 @@
 import type { LucideIcon } from 'lucide-react';
 
 export type AssetStatus =
-  | 'Verfuegbar'
-  | 'Reserviert'
-  | 'Ausgegeben'
-  | 'Unterwegs'
+  | 'Verfügbar'
+  | 'Verliehen'
   | 'In Wartung'
-  | 'Defekt'
-  | 'Verloren';
+  | 'Defekt';
 
 export type ReservationStatus =
   | 'Angefragt'
-  | 'Bestaetigt'
+  | 'Bestätigt'
   | 'Aktiv'
   | 'Abgeschlossen'
   | 'Storniert';
 
 export type MaintenancePriority = 'Niedrig' | 'Mittel' | 'Hoch' | 'Kritisch';
 
-export type MaintenanceStatus = 'Offen' | 'In Arbeit' | 'Wartet auf Teile' | 'Abgeschlossen';
+export type MaintenanceStatus = 'Offen' | 'In Bearbeitung' | 'Erledigt';
 
 export type AppPage =
-  | 'cloudSorter'
   | 'dashboard'
-  | 'assets'
+  | 'inventory'
+  | 'categories'
   | 'assetDetail'
-  | 'reservations'
   | 'checkinCheckout'
-  | 'maintenance'
-  | 'locations'
+  | 'qrFunctions'
+  | 'tickets'
+  | 'importExport'
   | 'users';
 
 export type NavItem = {
@@ -47,6 +44,7 @@ export type Asset = {
   nextReturn: string;
   tagNumber: string;
   serialNumber: string;
+  qrCode?: string;
   maintenanceState: string;
   notes: string;
   lastCheckout: string;
@@ -95,7 +93,10 @@ export type UserItem = {
   id: string;
   name: string;
   email: string;
-  role: 'Admin' | 'Lager / Logistik' | 'Mitarbeiter' | 'Event-Team' | 'Nur-Lesen';
+  role: 'Admin' | 'Mitarbeiter';
   lastActive: string;
-  status: 'Aktiv' | 'Eingeschraenkt';
+  status: 'Aktiv' | 'Inaktiv';
+  department?: string;
+  location?: string;
 };
+

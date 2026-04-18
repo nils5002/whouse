@@ -5,9 +5,19 @@ import type { ReservationItem } from '../types';
 
 type ReservationsPageProps = {
   reservations: ReservationItem[];
+  onCreateReservation: () => void;
+  onEditReservation: (id: string) => void;
+  onCheckoutReservation: (id: string) => void;
+  onCancelReservation: (id: string) => void;
 };
 
-export function ReservationsPage({ reservations }: ReservationsPageProps) {
+export function ReservationsPage({
+  reservations,
+  onCreateReservation,
+  onEditReservation,
+  onCheckoutReservation,
+  onCancelReservation,
+}: ReservationsPageProps) {
   const [view, setView] = useState<'list' | 'calendar'>('list');
 
   return (
@@ -21,7 +31,10 @@ export function ReservationsPage({ reservations }: ReservationsPageProps) {
           </p>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          <button className="w-full rounded-xl bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 sm:w-auto">
+          <button
+            className="w-full rounded-xl bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 sm:w-auto"
+            onClick={onCreateReservation}
+          >
             <span className="inline-flex items-center gap-2">
               <Plus className="h-4 w-4" />
               Neue Reservierung
@@ -87,13 +100,22 @@ export function ReservationsPage({ reservations }: ReservationsPageProps) {
                       <StatusBadge value={reservation.status} />
                     </td>
                     <td className="rounded-r-xl px-3 py-3 text-right">
-                      <button className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                        onClick={() => onEditReservation(reservation.id)}
+                      >
                         Bearbeiten
                       </button>
-                      <button className="ml-2 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700">
+                      <button
+                        className="ml-2 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700"
+                        onClick={() => onCheckoutReservation(reservation.id)}
+                      >
                         Check-out
                       </button>
-                      <button className="ml-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100">
+                      <button
+                        className="ml-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                        onClick={() => onCancelReservation(reservation.id)}
+                      >
                         Stornieren
                       </button>
                     </td>
@@ -114,13 +136,22 @@ export function ReservationsPage({ reservations }: ReservationsPageProps) {
                 <p className="mt-2 text-xs text-slate-600">{reservation.period}</p>
                 <p className="mt-2 text-xs text-slate-600">{reservation.assets.join(', ')}</p>
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <button className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                  <button
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    onClick={() => onEditReservation(reservation.id)}
+                  >
                     Bearbeiten
                   </button>
-                  <button className="rounded-lg bg-brand-600 px-2.5 py-2 text-xs font-medium text-white hover:bg-brand-700">
+                  <button
+                    className="rounded-lg bg-brand-600 px-2.5 py-2 text-xs font-medium text-white hover:bg-brand-700"
+                    onClick={() => onCheckoutReservation(reservation.id)}
+                  >
                     Check-out
                   </button>
-                  <button className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-medium text-rose-700 hover:bg-rose-100">
+                  <button
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                    onClick={() => onCancelReservation(reservation.id)}
+                  >
                     Stornieren
                   </button>
                 </div>
