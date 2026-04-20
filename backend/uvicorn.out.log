@@ -1,3 +1,0 @@
-INFO:     127.0.0.1:51441 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57585 - "POST /api/import/hardware?dry_run=true HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52118 - "POST /api/import/hardware?dry_run=false HTTP/1.1" 200 OK
