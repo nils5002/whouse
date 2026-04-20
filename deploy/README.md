@@ -85,6 +85,10 @@ cd /opt/web/cloud_web
 sh deploy/server/auto_deploy_poll.sh
 ```
 
+Hinweis:
+- Nutze **entweder** GitHub Actions Auto-Deploy **oder** Cron-Polling.
+- Wenn GitHub Actions aktiv ist, Cron-Polling deaktivieren, um parallele Deploys zu vermeiden.
+
 ## Deploy (lokal getriggert)
 
 Optionaler Helfer:

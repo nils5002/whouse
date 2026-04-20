@@ -60,6 +60,13 @@ sh deploy/server/install_auto_deploy_cron.sh
 
 Standard: alle 2 Minuten Polling auf `origin/main`, Deploy nur bei neuem Commit.
 
+Wichtig:
+- Wenn GitHub-Actions-Deploy aktiv ist, Cron wieder entfernen:
+
+```sh
+crontab -l | grep -v cloud_web_auto_deploy | crontab -
+```
+
 ## 7) Rollback
 
 ```sh

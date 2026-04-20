@@ -20,6 +20,7 @@ BACKUP_DIR="$RUNTIME_DIR/backups"
 LAST_SUCCESS_FILE="$STATE_DIR/last_successful_commit"
 PREVIOUS_SUCCESS_FILE="$STATE_DIR/previous_successful_commit"
 LAST_DEPLOY_LOG="$STATE_DIR/last_deploy.log"
+LOCK_FILE="$STATE_DIR/deploy.lock"
 
 log() {
   printf '%s\n' "$*"
@@ -51,6 +52,11 @@ fi
 [ -f "$ENV_FILE" ] || die "Runtime .env fehlt: $ENV_FILE"
 [ -f "$PROD_COMPOSE_FILE" ] || die "Runtime compose override fehlt: $PROD_COMPOSE_FILE"
 mkdir -p "$DEPLOY_TARGET_DIR" "$STATE_DIR" "$BACKUP_DIR"
+
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || die "Ein anderes Deploy laeuft bereits"
+fi
 
 timestamp() {
   date +%Y%m%d_%H%M%S
