@@ -84,7 +84,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           </form>
 
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Standardpasswort für bestehende Benutzer: <span className="font-semibold">Willkommen123!</span>
+            Standardpasswort für bestehende Benutzer: <span className="font-semibold">Frag mich</span>
           </div>
         </div>
       </main>
