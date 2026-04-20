@@ -30,9 +30,7 @@ const colorMap: Record<string, string> = {
 export function StatusBadge({ value }: { value: BadgeValue }) {
   const style = colorMap[value] ?? 'bg-zinc-100 text-zinc-700 ring-zinc-200';
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${style}`}
-    >
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${style}`}>
       {value}
     </span>
   );

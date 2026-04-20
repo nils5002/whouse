@@ -2,26 +2,32 @@ import { CalendarClock, ClipboardList, PenSquare, RotateCcw, ShieldCheck, Wrench
 import { AssetQrCard } from '../components/AssetQrCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { getAssetQrCode } from '../qr';
-import type { ActivityItem, Asset } from '../types';
+import type { ActivityItem, Asset, MaintenanceItem } from '../types';
 
 type AssetDetailPageProps = {
   asset: Asset | null;
   activities: ActivityItem[];
+  maintenanceItems: MaintenanceItem[];
   onReserveAsset: (assetId: string) => void;
   onCheckoutAsset: (assetId: string) => void;
   onCheckinAsset: (assetId: string) => void;
   onSetMaintenance: (assetId: string) => void;
   onEditAsset: (assetId: string) => void;
+  onCreateMaintenance: (payload: { assetName: string; issue: string; comment: string }) => void;
+  onOpenInventoryWithQuery: (query: string) => void;
 };
 
 export function AssetDetailPage({
   asset,
   activities,
+  maintenanceItems,
   onReserveAsset,
   onCheckoutAsset,
   onCheckinAsset,
   onSetMaintenance,
   onEditAsset,
+  onCreateMaintenance,
+  onOpenInventoryWithQuery,
 }: AssetDetailPageProps) {
   if (!asset) {
     return (
@@ -35,6 +41,18 @@ export function AssetDetailPage({
   }
 
   const timeline = activities.filter((item) => item.assetId === asset.id);
+  const movementLog = asset.notes
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) =>
+      ['Projekt:', 'Ausgabe durch:', 'Rücknahme:', 'Rücknahme durch:', 'Projektkontext:'].some((prefix) =>
+        line.startsWith(prefix),
+      ),
+    );
+  const relatedMaintenance = maintenanceItems
+    .filter((item) => item.assetName === asset.name || item.assetName.includes(asset.tagNumber))
+    .slice(0, 5);
+  const openMaintenanceCount = relatedMaintenance.filter((item) => item.status !== 'Erledigt').length;
   const qrValue = getAssetQrCode(asset);
 
   return (
@@ -77,6 +95,18 @@ export function AssetDetailPage({
             onClick={() => onEditAsset(asset.id)}
           >
             Bearbeiten
+          </button>
+          <button
+            className="w-full rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-100 sm:w-auto"
+            onClick={() =>
+              onCreateMaintenance({
+                assetName: asset.name,
+                issue: 'Defekt aus Asset-Detail gemeldet',
+                comment: '',
+              })
+            }
+          >
+            Ticket anlegen
           </button>
         </div>
       </div>
@@ -130,7 +160,7 @@ export function AssetDetailPage({
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                   <ClipboardList className="h-3.5 w-3.5" />
@@ -152,6 +182,13 @@ export function AssetDetailPage({
                 </p>
                 <p className="mt-2 text-sm font-medium text-slate-900">{asset.maintenanceState}</p>
               </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <Wrench className="h-3.5 w-3.5" />
+                  Offene Tickets
+                </p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{openMaintenanceCount}</p>
+              </div>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -164,6 +201,59 @@ export function AssetDetailPage({
 
             <AssetQrCard qrValue={qrValue} assetName={asset.name} tagNumber={asset.tagNumber} />
           </div>
+        </div>
+      </article>
+
+      <article className="surface-card animate-fade-up">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
+            <Wrench className="h-4 w-4" />
+            Zugehörige Tickets
+          </h3>
+          <button
+            type="button"
+            className="btn-secondary px-2.5 py-1.5 text-xs"
+            onClick={() => onOpenInventoryWithQuery(asset.name)}
+          >
+            Im Inventar suchen
+          </button>
+        </div>
+        {relatedMaintenance.length ? (
+          <div className="space-y-2">
+            {relatedMaintenance.map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-slate-900">{item.issue}</p>
+                  <StatusBadge value={item.status} />
+                </div>
+                <p className="mt-1 text-xs text-slate-600">{item.comment}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+            Für dieses Asset wurden noch keine Tickets erfasst.
+          </div>
+        )}
+      </article>
+
+      <article className="surface-card animate-fade-up">
+        <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
+          <ClipboardList className="h-4 w-4" />
+          Bewegungsprotokoll
+        </h3>
+        <div className="mt-3 space-y-2">
+          {movementLog.length ? (
+            movementLog.slice(-12).reverse().map((entry, index) => (
+              <div key={`movement-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                {entry}
+              </div>
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+              Noch keine Bewegungsdaten im Asset-Notizprotokoll.
+            </div>
+          )}
         </div>
       </article>
 

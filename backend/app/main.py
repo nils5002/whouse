@@ -6,11 +6,13 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from .config.settings import get_settings
 from .database.session import SessionLocal, init_db
 from .errors import register_error_handlers
 from .routes import api_router
+from .services.auth_service import ensure_user_passwords
 from .services.job_manager import JobManager
 from .services.wms_service import WmsService
 
@@ -51,12 +53,27 @@ def create_app() -> FastAPI:
     def on_startup() -> None:
         if settings.db_auto_create_schema:
             init_db()
+        with SessionLocal() as db:
+            # Backward-compatible schema patch for existing SQLite DBs without migration.
+            existing_columns = [
+                row[1]
+                for row in db.execute(text("PRAGMA table_info(users)")).fetchall()
+            ]
+            if "password_hash" not in existing_columns:
+                db.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255)"))
+                db.commit()
         if settings.wms_seed_legacy_on_startup:
             base_dir = Path(__file__).resolve().parents[1]
             legacy_path = settings.resolve_legacy_json_path(base_dir)
             with SessionLocal() as db:
                 WmsService.seed_from_legacy_json_if_needed(db, legacy_path)
             logger.info("Startup complete, DB initialized.")
+        with SessionLocal() as db:
+            try:
+                ensure_user_passwords(db)
+            except Exception:  # noqa: BLE001
+                logger.exception("Passwort-Initialisierung fehlgeschlagen")
+                raise
 
     return app
 

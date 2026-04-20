@@ -4,6 +4,7 @@ import { getAssetQrCode } from '../asset-ui/qr';
 import type {
   ActivityItem,
   AppPage,
+  AppRole,
   Asset,
   LocationItem,
   MaintenanceItem,
@@ -11,7 +12,10 @@ import type {
   UserItem,
 } from '../asset-ui/types';
 import {
+  deleteAsset,
   fetchWmsOverview,
+  getApiAccessContext,
+  setApiAccessContext,
   upsertActivity,
   upsertAsset,
   upsertLocation,
@@ -22,9 +26,52 @@ import {
 import { useAppDialog } from '../components/dialogs/AppDialogProvider';
 import { useTheme } from './useTheme';
 
-type CreateMaintenancePayload = { assetName: string; issue: string; comment: string };
-type CheckoutPayload = { assetId: string; assignee: string; dueDate: string; note: string };
-type CheckinPayload = { assetId: string; condition: string };
+type CreateMaintenancePayload = {
+  assetName: string;
+  issue: string;
+  comment: string;
+  priority?: MaintenanceItem['priority'];
+  status?: MaintenanceItem['status'];
+  location?: string;
+};
+type CheckoutPayload = {
+  assetId: string;
+  assignee: string;
+  projectName?: string;
+  bookedBy?: string;
+  dueDate: string;
+  note: string;
+};
+type CheckinPayload = {
+  assetId: string;
+  condition: string;
+  returnedBy?: string;
+  projectName?: string;
+};
+type CreateAssetInput = {
+  category: string;
+  name: string;
+  manufacturer?: string;
+  model?: string;
+  serialNumber: string;
+  tagNumber?: string;
+  location?: string;
+  notes?: string;
+};
+type UserUpsertInput = {
+  id?: string;
+  name: string;
+  email: string;
+  role: UserItem['role'];
+  status: UserItem['status'];
+  department?: string;
+  location?: string;
+};
+
+type UseWmsControllerOptions = {
+  activeRole: AppRole;
+  isAuthenticated: boolean;
+};
 
 function normalizeAssetStatus(value: Asset['status'] | string): Asset['status'] {
   const normalized = value.trim().toLowerCase();
@@ -50,17 +97,24 @@ function normalizeAssetStatus(value: Asset['status'] | string): Asset['status'] 
 }
 
 function normalizeUserRole(value: UserItem['role'] | string): UserItem['role'] {
-  return value === 'Admin' ? 'Admin' : 'Mitarbeiter';
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'admin') return 'Admin';
+  if (normalized === 'projektmanager') return 'Projektmanager';
+  if (normalized === 'junior') return 'Junior';
+  return 'Mitarbeiter';
 }
 
 function normalizeUserStatus(value: UserItem['status'] | string): UserItem['status'] {
   return value === 'Aktiv' ? 'Aktiv' : 'Inaktiv';
 }
 
-export function useWmsController() {
+export function useWmsController(options: UseWmsControllerOptions) {
+  const accessContext = getApiAccessContext();
+  const { activeRole, isAuthenticated } = options;
   const { theme, toggleTheme } = useTheme();
   const { alert, prompt } = useAppDialog();
   const [activePage, setActivePage] = useState<AppPage>('dashboard');
+  const [projectContext, setProjectContextState] = useState<string>(accessContext.projectContext ?? '');
   const [search, setSearch] = useState('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -109,6 +163,14 @@ export function useWmsController() {
   };
 
   useEffect(() => {
+    setApiAccessContext({ projectContext });
+  }, [projectContext]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setIsLoading(false);
+      return;
+    }
     let cancelled = false;
 
     const load = async () => {
@@ -125,7 +187,7 @@ export function useWmsController() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [isAuthenticated]);
 
   const selectedAsset = useMemo(
     () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
@@ -146,6 +208,36 @@ export function useWmsController() {
       await upsertAsset(normalizedAsset);
     } catch {
       setWmsError('Asset konnte nicht im Backend gespeichert werden.');
+    }
+  };
+
+  const adminUpdateAsset = async (assetId: string, patch: Partial<Asset>) => {
+    const asset = assets.find((item) => item.id === assetId);
+    if (!asset) return;
+    const updated: Asset = {
+      ...asset,
+      ...patch,
+      qrCode: getAssetQrCode({ ...asset, ...patch }),
+    };
+    await saveAsset(updated);
+    await addActivity('Asset korrigiert', `${updated.name} wurde administrativ angepasst.`, updated.id);
+  };
+
+  const adminDeleteAsset = async (assetId: string) => {
+    const asset = assets.find((item) => item.id === assetId);
+    if (!asset) return;
+    setAssets((prev) => prev.filter((item) => item.id !== assetId));
+    try {
+      await deleteAsset(assetId);
+      await addActivity('Asset gelöscht', `${asset.name} wurde aus dem Bestand entfernt.`, assetId);
+      if (selectedAssetId === assetId) {
+        setSelectedAssetId(null);
+        setActivePage('inventory');
+      }
+    } catch {
+      setWmsError('Asset konnte nicht gelöscht werden.');
+      await loadWms();
+      throw new Error('Asset konnte nicht gelöscht werden.');
     }
   };
 
@@ -214,6 +306,49 @@ export function useWmsController() {
     }
   };
 
+  const createAssetFromInput = async (input: CreateAssetInput) => {
+    const trimmedCategory = input.category.trim();
+    const trimmedName = input.name.trim();
+    const trimmedLocation = input.location?.trim() || 'Hauptlager';
+    const trimmedSerial = input.serialNumber.trim();
+    const trimmedTag = input.tagNumber?.trim();
+    const baseNotes = input.notes?.trim() || '';
+    const metaParts = [
+      input.manufacturer?.trim() ? `Hersteller: ${input.manufacturer.trim()}` : '',
+      input.model?.trim() ? `Modell: ${input.model.trim()}` : '',
+      baseNotes,
+    ].filter(Boolean);
+
+    const newAsset: Asset = {
+      id: createId('asset'),
+      name: trimmedName,
+      category: trimmedCategory,
+      location: trimmedLocation,
+      status: 'Verfügbar',
+      assignedTo: '-',
+      nextReturn: '-',
+      tagNumber: trimmedTag || `HW-${Math.floor(Math.random() * 9000) + 1000}`,
+      serialNumber: trimmedSerial,
+      qrCode: '',
+      maintenanceState: 'Neu erfasst',
+      notes: metaParts.join('\n'),
+      lastCheckout: '-',
+      nextReservation: '-',
+    };
+
+    const normalizedAsset = { ...newAsset, qrCode: getAssetQrCode(newAsset) };
+    setAssets((prev) => [normalizedAsset, ...prev]);
+    setSelectedAssetId(normalizedAsset.id);
+    await addActivity('Asset angelegt', `${normalizedAsset.name} wurde neu angelegt.`, normalizedAsset.id);
+    try {
+      await upsertAsset(normalizedAsset);
+    } catch {
+      setWmsError('Neues Asset konnte nicht im Backend gespeichert werden.');
+      throw new Error('Neues Asset konnte nicht im Backend gespeichert werden.');
+    }
+    return normalizedAsset;
+  };
+
   const reserveAsset = async (assetId: string) => {
     const asset = assets.find((item) => item.id === assetId);
     if (!asset) return;
@@ -247,6 +382,8 @@ export function useWmsController() {
     assigneeHint?: string,
     dueHint?: string,
     noteHint?: string,
+    projectHint?: string,
+    bookedByHint?: string,
   ) => {
     const asset = assets.find((item) => item.id === assetId);
     if (!asset) return;
@@ -269,19 +406,30 @@ export function useWmsController() {
       })) ||
       asset.nextReturn;
     const note = noteHint || '';
+    const project = projectHint?.trim() || '';
+    const bookedBy = bookedByHint?.trim() || '';
+    const metadataLines = [
+      project ? `Projekt: ${project}` : '',
+      bookedBy ? `Ausgabe durch: ${bookedBy}` : '',
+      note ? `Notiz: ${note}` : '',
+    ].filter(Boolean);
     const updated: Asset = {
       ...asset,
       status: 'Verliehen',
-      assignedTo: assignee.trim(),
+      assignedTo: project ? `${assignee.trim()} · ${project}` : assignee.trim(),
       nextReturn: due,
       lastCheckout: new Date().toLocaleDateString('de-DE'),
-      notes: note ? `${asset.notes}\n${note}`.trim() : asset.notes,
+      notes: metadataLines.length ? `${asset.notes}\n${metadataLines.join('\n')}`.trim() : asset.notes,
     };
     await saveAsset(updated);
-    await addActivity('Asset ausgegeben', `${asset.name} wurde an ${assignee.trim()} ausgegeben.`, asset.id);
+    await addActivity(
+      'Asset ausgegeben',
+      `${asset.name} wurde an ${assignee.trim()}${project ? ` für ${project}` : ''} ausgegeben.`,
+      asset.id,
+    );
   };
 
-  const checkinAsset = async (assetId: string, conditionNote?: string) => {
+  const checkinAsset = async (assetId: string, conditionNote?: string, returnedByHint?: string, projectHint?: string) => {
     const asset = assets.find((item) => item.id === assetId);
     if (!asset) return;
     const note =
@@ -292,16 +440,27 @@ export function useWmsController() {
         defaultValue: '',
       })) ||
       '';
+    const returnedBy = returnedByHint?.trim() || '';
+    const project = projectHint?.trim() || '';
+    const returnLines = [
+      `Rücknahme: ${note}`,
+      returnedBy ? `Rücknahme durch: ${returnedBy}` : '',
+      project ? `Projektkontext: ${project}` : '',
+    ].filter(Boolean);
     const updated: Asset = {
       ...asset,
       status: 'Verfügbar',
       assignedTo: '-',
       nextReturn: '-',
       nextReservation: '-',
-      notes: note ? `${asset.notes}\nRücknahme: ${note}`.trim() : asset.notes,
+      notes: `${asset.notes}\n${returnLines.join('\n')}`.trim(),
     };
     await saveAsset(updated);
-    await addActivity('Asset zurückgenommen', `${asset.name} wurde zurückgenommen.`, asset.id);
+    await addActivity(
+      'Asset zurückgenommen',
+      `${asset.name} wurde zurückgenommen${returnedBy ? ` von ${returnedBy}` : ''}.`,
+      asset.id,
+    );
   };
 
   const setAssetMaintenance = async (assetId: string) => {
@@ -477,9 +636,9 @@ export function useWmsController() {
       comment: payload.comment || 'Neu erfasst',
       reportedAt: new Date().toLocaleDateString('de-DE'),
       dueDate: new Date(Date.now() + 4 * 86400000).toLocaleDateString('de-DE'),
-      priority: 'Mittel',
-      status: 'Offen',
-      location: 'Werkstatt',
+      priority: payload.priority ?? 'Mittel',
+      status: payload.status ?? 'Offen',
+      location: payload.location?.trim() || 'Werkstatt',
     };
     setMaintenanceItems((prev) => [item, ...prev]);
     try {
@@ -490,54 +649,16 @@ export function useWmsController() {
     }
   };
 
-  const inviteUser = async () => {
-    const name = await prompt({
-      title: 'Benutzer anlegen',
-      message: 'Name',
-      required: true,
-      submitLabel: 'Weiter',
-    });
-    if (!name?.trim()) return;
-    const email =
-      (await prompt({
-        title: 'Benutzer anlegen',
-        message: 'E-Mail oder Benutzername',
-        defaultValue: '',
-        required: true,
-        submitLabel: 'Weiter',
-      })) || '';
-    if (!email.trim()) return;
-    const role =
-      ((await prompt({
-        title: 'Benutzer anlegen',
-        message: 'Rolle (Admin oder Mitarbeiter)',
-        defaultValue: 'Mitarbeiter',
-        submitLabel: 'Weiter',
-      })) as UserItem['role']) ||
-      'Mitarbeiter';
-    const department =
-      (await prompt({
-        title: 'Benutzer anlegen',
-        message: 'Abteilung (optional)',
-        defaultValue: '',
-        submitLabel: 'Weiter',
-      })) || '';
-    const location =
-      (await prompt({
-        title: 'Benutzer anlegen',
-        message: 'Standort (optional)',
-        defaultValue: '',
-        submitLabel: 'Anlegen',
-      })) || '';
+  const inviteUser = async (payload: UserUpsertInput) => {
     const user: UserItem = {
       id: createId('usr'),
-      name: name.trim(),
-      email: email.trim(),
-      role: normalizeUserRole(role),
+      name: payload.name.trim(),
+      email: payload.email.trim(),
+      role: normalizeUserRole(payload.role),
       lastActive: 'Gerade erstellt',
-      status: 'Aktiv',
-      department: department.trim() || undefined,
-      location: location.trim() || undefined,
+      status: normalizeUserStatus(payload.status),
+      department: payload.department?.trim() || undefined,
+      location: payload.location?.trim() || undefined,
     };
     setUsers((prev) => [user, ...prev]);
     try {
@@ -545,11 +666,43 @@ export function useWmsController() {
       await addActivity('Benutzer erstellt', `${user.name} wurde eingeladen.`);
     } catch {
       setWmsError('Benutzer konnte nicht gespeichert werden.');
+      throw new Error('Benutzer konnte nicht gespeichert werden.');
+    }
+  };
+
+  const editUser = async (payload: UserUpsertInput) => {
+    if (!payload.id) return;
+    const existing = users.find((user) => user.id === payload.id);
+    if (!existing) return;
+
+    const updated: UserItem = {
+      ...existing,
+      name: payload.name.trim(),
+      email: payload.email.trim(),
+      role: normalizeUserRole(payload.role),
+      status: normalizeUserStatus(payload.status),
+      department: payload.department?.trim() || undefined,
+      location: payload.location?.trim() || undefined,
+      lastActive: 'Gerade bearbeitet',
+    };
+
+    setUsers((prev) => prev.map((item) => (item.id === payload.id ? updated : item)));
+    try {
+      await upsertUser(updated);
+      await addActivity('Benutzer bearbeitet', `${updated.name} wurde aktualisiert.`);
+    } catch {
+      setWmsError('Benutzer konnte nicht aktualisiert werden.');
+      throw new Error('Benutzer konnte nicht aktualisiert werden.');
     }
   };
 
   const openLocationInventory = (name: string) => {
     setSearch(name);
+    setActivePage('inventory');
+  };
+
+  const openInventoryWithQuery = (query: string) => {
+    setSearch(query);
     setActivePage('inventory');
   };
 
@@ -602,21 +755,35 @@ export function useWmsController() {
   };
 
   const openProfile = () => {
-    setActivePage('users');
+    setActivePage(activeRole === 'Admin' ? 'users' : 'dashboard');
+  };
+
+  const setProjectContext = (value: string) => {
+    setProjectContextState(value);
   };
 
   const checkoutFromForm = async (payload: CheckoutPayload) => {
-    await checkoutAsset(payload.assetId, payload.assignee, payload.dueDate, payload.note);
+    await checkoutAsset(
+      payload.assetId,
+      payload.assignee,
+      payload.dueDate,
+      payload.note,
+      payload.projectName,
+      payload.bookedBy,
+    );
   };
 
   const checkinFromForm = async (payload: CheckinPayload) => {
-    await checkinAsset(payload.assetId, payload.condition);
+    await checkinAsset(payload.assetId, payload.condition, payload.returnedBy, payload.projectName);
   };
 
   return {
     loadWms,
     theme,
     toggleTheme,
+    activeRole,
+    projectContext,
+    setProjectContext,
     isLoading,
     wmsError,
     activePage,
@@ -634,6 +801,9 @@ export function useWmsController() {
     users,
     openAssetDetail,
     createAsset,
+    createAssetFromInput,
+    adminUpdateAsset,
+    adminDeleteAsset,
     reserveAsset,
     checkoutAsset,
     checkinAsset,
@@ -645,7 +815,9 @@ export function useWmsController() {
     cancelReservation,
     createMaintenance,
     inviteUser,
+    editUser,
     openLocationInventory,
+    openInventoryWithQuery,
     editLocation,
     openHelp,
     openNotifications,

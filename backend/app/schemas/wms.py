@@ -25,7 +25,7 @@ MaintenanceStatus = Literal[
     "Wartet auf Teile",
     "Abgeschlossen",
 ]
-UserRole = Literal["Admin", "Mitarbeiter", "Lager / Logistik", "Event-Team", "Nur-Lesen"]
+UserRole = Literal["Admin", "Projektmanager", "Mitarbeiter", "Junior", "Lager / Logistik", "Event-Team", "Nur-Lesen"]
 UserStatus = Literal["Aktiv", "Inaktiv", "Eingeschraenkt"]
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text, func
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -99,11 +99,56 @@ class UserRecord(TimestampMixin, Base):
     external_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[str] = mapped_column(String(64), nullable=False, default="Mitarbeiter")
     last_active: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="Aktiv")
     department: Mapped[str | None] = mapped_column(String(120), nullable=True)
     location: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class PlanningRecord(TimestampMixin, Base):
+    __tablename__ = "planning"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    external_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    customer_name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    project_name: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    event_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    project_manager_user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.external_id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    calendar_week: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="Entwurf", index=True)
+    template_source_planning_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class PlanningDayRecord(TimestampMixin, Base):
+    __tablename__ = "planning_days"
+    __table_args__ = (UniqueConstraint("planning_id", "planning_date", name="uq_planning_days_planning_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    planning_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("planning.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    planning_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    weekday: Mapped[str] = mapped_column(String(16), nullable=False)
+
+
+class PlanningItemRecord(TimestampMixin, Base):
+    __tablename__ = "planning_items"
+    __table_args__ = (UniqueConstraint("planning_day_id", "category_key", name="uq_planning_items_day_category"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    planning_day_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("planning_days.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    category_key: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class HardwareImportRunRecord(Base):

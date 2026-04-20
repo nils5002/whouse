@@ -23,6 +23,7 @@ from ..schemas.wms import (
     UserItem,
     WmsOverviewResponse,
 )
+from ..services.auth_service import DEFAULT_PASSWORD, hash_password
 
 
 def _build_qr_code(asset_id: str, tag_number: str) -> str:
@@ -62,8 +63,12 @@ def _normalize_asset_status(value: str | None) -> str:
 
 def _normalize_user_role(value: str | None) -> str:
     raw = (value or "").strip().lower()
-    if raw == "admin":
+    if raw in {"admin", "techniker", "administrator"}:
         return "Admin"
+    if raw in {"projektmanager", "projectmanager", "project manager"}:
+        return "Projektmanager"
+    if raw in {"junior"}:
+        return "Junior"
     return "Mitarbeiter"
 
 
@@ -391,7 +396,11 @@ def upsert_user(db: Session, item: UserItem) -> UserItem:
         for key, value in payload.items():
             setattr(record, key, value)
     else:
-        record = UserRecord(external_id=item.id, **payload)
+        record = UserRecord(
+            external_id=item.id,
+            password_hash=hash_password(DEFAULT_PASSWORD),
+            **payload,
+        )
         db.add(record)
     db.commit()
     db.refresh(record)

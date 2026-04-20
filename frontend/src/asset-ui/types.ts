@@ -21,6 +21,7 @@ export type AppPage =
   | 'dashboard'
   | 'inventory'
   | 'categories'
+  | 'planning'
   | 'assetDetail'
   | 'checkinCheckout'
   | 'qrFunctions'
@@ -28,10 +29,14 @@ export type AppPage =
   | 'importExport'
   | 'users';
 
+export type AppRole = 'Admin' | 'Projektmanager' | 'Mitarbeiter';
+
 export type NavItem = {
   key: AppPage;
   label: string;
   icon: LucideIcon;
+  group?: 'operations' | 'administration';
+  hint?: string;
 };
 
 export type Asset = {
@@ -93,7 +98,7 @@ export type UserItem = {
   id: string;
   name: string;
   email: string;
-  role: 'Admin' | 'Mitarbeiter';
+  role: 'Admin' | 'Projektmanager' | 'Mitarbeiter' | 'Junior';
   lastActive: string;
   status: 'Aktiv' | 'Inaktiv';
   department?: string;

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None
+    auth_token_secret: str = "change-me-in-production"
 
     wms_seed_legacy_on_startup: bool = True
     wms_legacy_json_path: str = "app/data/wms_db.json"
