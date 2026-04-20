@@ -46,12 +46,44 @@ sh deploy/server/deploy.sh main
 
 Das Script macht:
 
-1. `git fetch` + `git pull --ff-only`
-2. Schonenden Code-Sync von `/opt/web/cloud_web` nach `/opt/stacks/cloud_web` (ohne Runtime-/Secret-Dateien)
+1. `git fetch` + `git pull --ff-only` (mit Auto-Stash falls Worktree nicht clean)
+2. Deploy des aktuellen Git-Commit-Standes nach `/opt/stacks/cloud_web` (ohne Runtime-/Secret-Dateien)
 3. `docker compose` nur mit Runtime-Dateien:
    - `docker-compose.prod.yml` aus Runtime (serverlokal)
    - `.env` aus Runtime (serverlokal)
 4. `up -d --build --remove-orphans`
+5. Health-Check intern + extern (`https://warehouse.nilshome.loan/`)
+6. Bei Fehlern: automatischer Rollback auf letztes erfolgreiches Commit
+
+## Rollback (manuell)
+
+```sh
+cd /opt/web/cloud_web
+sh deploy/server/rollback.sh
+```
+
+Optional expliziter Commit:
+
+```sh
+cd /opt/web/cloud_web
+sh deploy/server/rollback.sh <commit-sha>
+```
+
+## Auto-Deploy (Polling + Cron)
+
+Installiert einen leichten Polling-Trigger (Standard alle 2 Minuten):
+
+```sh
+cd /opt/web/cloud_web
+sh deploy/server/install_auto_deploy_cron.sh
+```
+
+Manuell testen:
+
+```sh
+cd /opt/web/cloud_web
+sh deploy/server/auto_deploy_poll.sh
+```
 
 ## Deploy (lokal getriggert)
 
