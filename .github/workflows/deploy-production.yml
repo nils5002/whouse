@@ -21,8 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd /opt/web/cloud_web
-          AUTO_STASH=true sh deploy/server/deploy.sh main
+          sudo /opt/web/cloud_web/deploy/server/deploy.sh main
 
       - name: External health check
         shell: bash
