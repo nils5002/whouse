@@ -22,6 +22,7 @@ import type {
 type WmsPageViewProps = {
   activePage: AppPage;
   activeRole: AppRole;
+  currentUserId: string;
   projectContext: string;
   onProjectContextChange: (value: string) => void;
   assets: Asset[];
@@ -80,6 +81,7 @@ type WmsPageViewProps = {
     department?: string;
     location?: string;
   }) => Promise<void>;
+  onDeleteUser: (id: string) => Promise<void>;
   onOpenLocationInventory: (name: string) => void;
   onEditLocation: (name: string) => Promise<void>;
   onReloadData: () => Promise<void>;
@@ -104,6 +106,7 @@ type WmsPageViewProps = {
 export function WmsPageView({
   activePage,
   activeRole,
+  currentUserId,
   projectContext,
   onProjectContextChange,
   assets,
@@ -131,6 +134,7 @@ export function WmsPageView({
   onCreateMaintenance,
   onInviteUser,
   onEditUser,
+  onDeleteUser,
   onOpenLocationInventory,
   onEditLocation,
   onReloadData,
@@ -297,11 +301,13 @@ export function WmsPageView({
       return (
         <UsersPage
           users={users}
+          currentUserId={currentUserId}
           assets={assets}
           activities={activities}
           onOpenInventoryWithQuery={onOpenInventoryWithQuery}
           onInviteUser={(payload) => onInviteUser(payload)}
           onEditUser={(payload) => onEditUser(payload)}
+          onDeleteUser={(id) => onDeleteUser(id)}
         />
       );
     default:

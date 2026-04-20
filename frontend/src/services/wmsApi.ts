@@ -413,6 +413,13 @@ export function upsertUser(user: UserItem): Promise<UserItem> {
   return postJson<UserItem>('/api/wms/users', user);
 }
 
+export async function deleteUser(userId: string): Promise<{ deleted: boolean }> {
+  const response = await apiFetch(`/api/wms/users/${userId}`, {
+    method: 'DELETE',
+  });
+  return parseResponse<{ deleted: boolean }>(response);
+}
+
 export function upsertActivity(activity: ActivityItem): Promise<ActivityItem> {
   return postJson<ActivityItem>('/api/wms/activities', activity);
 }

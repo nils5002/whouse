@@ -13,8 +13,10 @@ import type {
 } from '../asset-ui/types';
 import {
   deleteAsset,
+  deleteUser as deleteUserRequest,
   fetchWmsOverview,
   getApiAccessContext,
+  getAuthSession,
   setApiAccessContext,
   upsertActivity,
   upsertAsset,
@@ -696,6 +698,34 @@ export function useWmsController(options: UseWmsControllerOptions) {
     }
   };
 
+  const adminDeleteUser = async (userId: string) => {
+    const currentUserId = getAuthSession()?.user.userId;
+    if (currentUserId && currentUserId === userId) {
+      throw new Error('Du kannst deinen eigenen Benutzer nicht löschen.');
+    }
+
+    const target = users.find((user) => user.id === userId);
+    if (!target) {
+      return;
+    }
+
+    setUsers((prev) => prev.filter((item) => item.id !== userId));
+    try {
+      const result = await deleteUserRequest(userId);
+      if (!result.deleted) {
+        throw new Error('Benutzer wurde nicht gefunden.');
+      }
+      await addActivity('Benutzer gelöscht', `${target.name} wurde deaktiviert.`);
+    } catch (error) {
+      setWmsError('Benutzer konnte nicht gelöscht werden.');
+      await loadWms();
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Benutzer konnte nicht gelöscht werden.');
+    }
+  };
+
   const openLocationInventory = (name: string) => {
     setSearch(name);
     setActivePage('inventory');
@@ -816,6 +846,7 @@ export function useWmsController(options: UseWmsControllerOptions) {
     createMaintenance,
     inviteUser,
     editUser,
+    adminDeleteUser,
     openLocationInventory,
     openInventoryWithQuery,
     editLocation,

@@ -87,8 +87,8 @@ class WmsService:
         return wms_repository.upsert_user(db, user)
 
     @staticmethod
-    def delete_user(db: Session, user_id: str) -> bool:
-        return wms_repository.delete_user(db, user_id)
+    def delete_user(db: Session, user_id: str, actor_user_id: str | None = None) -> bool:
+        return wms_repository.delete_user(db, user_id, actor_user_id=actor_user_id)
 
     @staticmethod
     def list_activities(db: Session) -> list[ActivityItem]:
@@ -109,4 +109,3 @@ class WmsService:
         result = wms_repository.seed_from_legacy_json(db, legacy_path)
         if result["created"] > 0:
             logger.info("WMS legacy seed imported %s records from %s", result["created"], legacy_path)
-

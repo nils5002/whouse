@@ -1,5 +1,6 @@
-import { Shield, UserPlus, Users2 } from 'lucide-react';
+import { Shield, Trash2, UserPlus, Users2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useAppDialog } from '../../components/dialogs/AppDialogProvider';
 import { StatusBadge } from '../components/StatusBadge';
 import type { ActivityItem, Asset, UserItem } from '../types';
 
@@ -26,13 +27,16 @@ function emptyUserForm(): UserFormState {
 
 export function UsersPage({
   users,
+  currentUserId,
   assets,
   activities,
   onOpenInventoryWithQuery,
   onInviteUser,
   onEditUser,
+  onDeleteUser,
 }: {
   users: UserItem[];
+  currentUserId: string;
   assets: Asset[];
   activities: ActivityItem[];
   onOpenInventoryWithQuery: (query: string) => void;
@@ -53,10 +57,14 @@ export function UsersPage({
     department?: string;
     location?: string;
   }) => Promise<void>;
+  onDeleteUser: (id: string) => Promise<void>;
 }) {
+  const { confirm, alert } = useAppDialog();
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyUserForm());
 
   const adminCount = users.filter((user) => user.role === 'Admin').length;
@@ -77,6 +85,7 @@ export function UsersPage({
   const openCreate = () => {
     setForm(emptyUserForm());
     setError(null);
+    setActionError(null);
     setFormOpen(true);
   };
 
@@ -91,6 +100,7 @@ export function UsersPage({
       location: user.location ?? '',
     });
     setError(null);
+    setActionError(null);
     setFormOpen(true);
   };
 
@@ -143,6 +153,37 @@ export function UsersPage({
     }
   };
 
+  const removeUser = async (user: UserItem) => {
+    if (user.id === currentUserId) {
+      setActionError('Du kannst deinen eigenen Benutzer nicht löschen.');
+      return;
+    }
+
+    const accepted = await confirm({
+      title: 'Benutzer wirklich löschen?',
+      message: `Möchtest du ${user.name} wirklich löschen? Der Benutzer wird deaktiviert und aus aktiven Listen entfernt. Diese Aktion kann in der Oberfläche nicht rückgängig gemacht werden.`,
+      confirmLabel: 'Löschen',
+      cancelLabel: 'Abbrechen',
+    });
+    if (!accepted) return;
+
+    setDeletingUserId(user.id);
+    setActionError(null);
+    try {
+      await onDeleteUser(user.id);
+      await alert({
+        title: 'Benutzer gelöscht',
+        message: `${user.name} wurde deaktiviert und aus der aktiven Liste entfernt.`,
+      });
+    } catch (deleteError) {
+      setActionError(
+        deleteError instanceof Error ? deleteError.message : 'Benutzer konnte nicht gelöscht werden.',
+      );
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -175,6 +216,12 @@ export function UsersPage({
       </div>
 
       <article className="surface-card animate-fade-up">
+        {actionError ? (
+          <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {actionError}
+          </div>
+        ) : null}
+
         <div className="soft-scrollbar hidden overflow-x-auto md:block">
           <table className="w-full min-w-[760px] border-separate border-spacing-y-2 text-sm">
             <thead>
@@ -207,9 +254,24 @@ export function UsersPage({
                     <StatusBadge value={user.status} />
                   </td>
                   <td className="rounded-r-xl px-3 py-3 text-right">
-                    <button type="button" className="btn-secondary px-2.5 py-1.5 text-xs" onClick={() => openEdit(user)}>
-                      Bearbeiten
-                    </button>
+                    <div className="inline-flex items-center gap-2">
+                      <button type="button" className="btn-secondary px-2.5 py-1.5 text-xs" onClick={() => openEdit(user)}>
+                        Bearbeiten
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => {
+                          void removeUser(user);
+                        }}
+                        disabled={deletingUserId === user.id || user.id === currentUserId}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {user.id === currentUserId ? 'Eigener Account' : deletingUserId === user.id ? 'Lösche...' : 'Löschen'}
+                        </span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -235,6 +297,19 @@ export function UsersPage({
               <p className="mt-2 text-xs text-slate-500">Letzte Aktivität: {user.lastActive}</p>
               <button type="button" className="btn-secondary mt-3 px-2.5 py-1.5 text-xs" onClick={() => openEdit(user)}>
                 Bearbeiten
+              </button>
+              <button
+                type="button"
+                className="btn-secondary mt-2 border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => {
+                  void removeUser(user);
+                }}
+                disabled={deletingUserId === user.id || user.id === currentUserId}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {user.id === currentUserId ? 'Eigener Account' : deletingUserId === user.id ? 'Lösche...' : 'Löschen'}
+                </span>
               </button>
             </article>
           ))}

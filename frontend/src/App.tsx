@@ -154,6 +154,7 @@ function App() {
             ) : null}
             <WmsPageView
               activePage={controller.activePage}
+              currentUserId={authUser.userId}
               projectContext={controller.projectContext}
               onProjectContextChange={controller.setProjectContext}
               assets={controller.assets}
@@ -181,6 +182,7 @@ function App() {
               onCreateMaintenance={controller.createMaintenance}
               onInviteUser={controller.inviteUser}
               onEditUser={controller.editUser}
+              onDeleteUser={controller.adminDeleteUser}
               onOpenLocationInventory={controller.openLocationInventory}
               onEditLocation={controller.editLocation}
               onReloadData={controller.loadWms}

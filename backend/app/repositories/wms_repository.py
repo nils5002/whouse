@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -77,6 +78,14 @@ def _normalize_user_status(value: str | None) -> str:
     if raw in {"aktiv", "active"}:
         return "Aktiv"
     return "Inaktiv"
+
+
+def _is_active_user(record: UserRecord) -> bool:
+    return _normalize_user_status(record.status) == "Aktiv"
+
+
+def _is_admin_user(record: UserRecord) -> bool:
+    return _normalize_user_role(record.role) == "Admin"
 
 
 def _normalize_maintenance_status(value: str | None) -> str:
@@ -377,7 +386,8 @@ def delete_location(db: Session, name: str) -> bool:
 
 def list_users(db: Session) -> list[UserItem]:
     stmt = select(UserRecord).order_by(UserRecord.created_at.desc())
-    return [_user_to_schema(item) for item in db.scalars(stmt).all()]
+    records = db.scalars(stmt).all()
+    return [_user_to_schema(item) for item in records if _is_active_user(item)]
 
 
 def upsert_user(db: Session, item: UserItem) -> UserItem:
@@ -407,12 +417,29 @@ def upsert_user(db: Session, item: UserItem) -> UserItem:
     return _user_to_schema(record)
 
 
-def delete_user(db: Session, external_id: str) -> bool:
+def delete_user(db: Session, external_id: str, *, actor_user_id: str | None = None) -> bool:
     stmt = select(UserRecord).where(UserRecord.external_id == external_id)
     record = db.scalar(stmt)
     if not record:
         return False
-    db.delete(record)
+
+    actor_id = (actor_user_id or "").strip()
+    if actor_id and actor_id == external_id:
+        raise HTTPException(status_code=409, detail="Admin kann den eigenen Benutzer nicht löschen.")
+
+    if _is_admin_user(record):
+        active_admins = [
+            user
+            for user in db.scalars(select(UserRecord)).all()
+            if _is_admin_user(user) and _is_active_user(user)
+        ]
+        if len(active_admins) <= 1 and any(user.external_id == external_id for user in active_admins):
+            raise HTTPException(status_code=409, detail="Der letzte aktive Admin kann nicht gelöscht werden.")
+
+    if _normalize_user_status(record.status) == "Inaktiv":
+        return True
+
+    record.status = "Inaktiv"
     db.commit()
     return True
 

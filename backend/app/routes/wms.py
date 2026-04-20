@@ -220,7 +220,7 @@ def delete_user(
     context: AccessContext = Depends(get_access_context),
 ) -> dict[str, bool]:
     require_roles(context, "admin")
-    return {"deleted": WmsService.delete_user(db, user_id)}
+    return {"deleted": WmsService.delete_user(db, user_id, actor_user_id=context.user_id)}
 
 
 @router.get("/activities", response_model=list[ActivityItem])
