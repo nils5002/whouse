@@ -12,25 +12,17 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on:
+      - self-hosted
+      - cloud-web-prod
     timeout-minutes: 45
     steps:
-      - name: Configure SSH key
-        shell: bash
-        run: |
-          set -euo pipefail
-          install -m 700 -d ~/.ssh
-          cat > ~/.ssh/id_ed25519 << 'EOF'
-          ${{ secrets.WAREHOUSE_PROD_SSH_KEY }}
-          EOF
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H 192.168.178.82 >> ~/.ssh/known_hosts
-
       - name: Run deploy script on production server
         shell: bash
         run: |
           set -euo pipefail
-          ssh root@192.168.178.82 "cd /opt/web/cloud_web && AUTO_STASH=true sh deploy/server/deploy.sh main"
+          cd /opt/web/cloud_web
+          AUTO_STASH=true sh deploy/server/deploy.sh main
 
       - name: External health check
         shell: bash
