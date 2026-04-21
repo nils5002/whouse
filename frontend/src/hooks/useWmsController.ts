@@ -76,6 +76,16 @@ type UseWmsControllerOptions = {
   isAuthenticated: boolean;
 };
 
+function canTransitionMaintenanceStatus(
+  from: MaintenanceItem['status'],
+  to: MaintenanceItem['status'],
+): boolean {
+  if (from === to) return true;
+  if (from === 'Offen' && to === 'In Bearbeitung') return true;
+  if (from === 'In Bearbeitung' && to === 'Erledigt') return true;
+  return false;
+}
+
 function normalizeAssetStatus(value: Asset['status'] | string): Asset['status'] {
   const normalized = value.trim().toLowerCase();
   if (normalized === 'verfuegbar' || normalized === 'verfügbar' || normalized === 'ok') {
@@ -687,6 +697,56 @@ export function useWmsController(options: UseWmsControllerOptions) {
     }
   };
 
+  const updateMaintenanceStatus = async (maintenanceId: string, status: MaintenanceItem['status']) => {
+    const existing = maintenanceItems.find((item) => item.id === maintenanceId);
+    if (!existing) return;
+    if (!canTransitionMaintenanceStatus(existing.status, status)) {
+      await alert({
+        title: 'Statuswechsel nicht erlaubt',
+        message: `Erlaubt ist nur Offen → In Bearbeitung → Erledigt.`,
+      });
+      return;
+    }
+
+    const updatedItem: MaintenanceItem = { ...existing, status };
+    setMaintenanceItems((prev) => prev.map((item) => (item.id === maintenanceId ? updatedItem : item)));
+
+    try {
+      await upsertMaintenance(updatedItem);
+    } catch {
+      setWmsError('Defektstatus konnte nicht gespeichert werden.');
+    }
+
+    const relatedAsset = assets.find((asset) => asset.name === existing.assetName);
+    if (!relatedAsset) {
+      await addActivity('Defektstatus aktualisiert', `${existing.assetName}: ${status}`);
+      return;
+    }
+
+    let nextAssetStatus: Asset['status'] = relatedAsset.status;
+    let nextMaintenanceState = relatedAsset.maintenanceState;
+
+    if (status === 'Offen') {
+      nextAssetStatus = 'Defekt';
+      nextMaintenanceState = 'Defekt gemeldet';
+    } else if (status === 'In Bearbeitung') {
+      nextAssetStatus = 'In Wartung';
+      nextMaintenanceState = 'Reparatur in Bearbeitung';
+    } else if (status === 'Erledigt') {
+      if (relatedAsset.status === 'Defekt' || relatedAsset.status === 'In Wartung') {
+        nextAssetStatus = 'Verfügbar';
+      }
+      nextMaintenanceState = 'Wartung erledigt';
+    }
+
+    await saveAsset({
+      ...relatedAsset,
+      status: nextAssetStatus,
+      maintenanceState: nextMaintenanceState,
+    });
+    await addActivity('Defektstatus aktualisiert', `${relatedAsset.name}: ${status}`, relatedAsset.id);
+  };
+
   const inviteUser = async (payload: UserUpsertInput) => {
     const user: UserItem = {
       id: createId('usr'),
@@ -880,6 +940,7 @@ export function useWmsController(options: UseWmsControllerOptions) {
     checkoutReservation,
     cancelReservation,
     createMaintenance,
+    updateMaintenanceStatus,
     inviteUser,
     editUser,
     adminDeleteUser,

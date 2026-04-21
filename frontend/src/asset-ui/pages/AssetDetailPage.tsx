@@ -1,10 +1,11 @@
-import { CalendarClock, ClipboardList, PenSquare, RotateCcw, ShieldCheck, Wrench } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ClipboardList, PenSquare, RotateCcw, ShieldCheck, Wrench } from 'lucide-react';
 import { AssetQrCard } from '../components/AssetQrCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { getAssetQrCode } from '../qr';
-import type { ActivityItem, Asset, MaintenanceItem } from '../types';
+import type { ActivityItem, AppRole, Asset, MaintenanceItem } from '../types';
 
 type AssetDetailPageProps = {
+  activeRole: AppRole;
   asset: Asset | null;
   activities: ActivityItem[];
   maintenanceItems: MaintenanceItem[];
@@ -14,10 +15,12 @@ type AssetDetailPageProps = {
   onSetMaintenance: (assetId: string) => void;
   onEditAsset: (assetId: string) => void;
   onCreateMaintenance: (payload: { assetName: string; issue: string; comment: string }) => void;
+  onUpdateMaintenanceStatus: (id: string, status: MaintenanceItem['status']) => void;
   onOpenInventoryWithQuery: (query: string) => void;
 };
 
 export function AssetDetailPage({
+  activeRole,
   asset,
   activities,
   maintenanceItems,
@@ -27,6 +30,7 @@ export function AssetDetailPage({
   onSetMaintenance,
   onEditAsset,
   onCreateMaintenance,
+  onUpdateMaintenanceStatus,
   onOpenInventoryWithQuery,
 }: AssetDetailPageProps) {
   if (!asset) {
@@ -52,8 +56,10 @@ export function AssetDetailPage({
   const relatedMaintenance = maintenanceItems
     .filter((item) => item.assetName === asset.name || item.assetName.includes(asset.tagNumber))
     .slice(0, 5);
+  const latestMaintenance = relatedMaintenance[0] ?? null;
   const openMaintenanceCount = relatedMaintenance.filter((item) => item.status !== 'Erledigt').length;
   const qrValue = getAssetQrCode(asset);
+  const isAdmin = activeRole === 'Admin';
 
   return (
     <section className="space-y-5">
@@ -101,12 +107,12 @@ export function AssetDetailPage({
             onClick={() =>
               onCreateMaintenance({
                 assetName: asset.name,
-                issue: 'Defekt aus Asset-Detail gemeldet',
+                issue: 'Gerät defekt',
                 comment: '',
               })
             }
           >
-            Ticket anlegen
+            Defekt melden
           </button>
         </div>
       </div>
@@ -205,10 +211,79 @@ export function AssetDetailPage({
       </article>
 
       <article className="surface-card animate-fade-up">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
+              <AlertTriangle className="h-4 w-4" />
+              Defekt-/Wartungsstatus am Gerät
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">Melden, bearbeiten, erledigen direkt im Asset-Kontext.</p>
+          </div>
+          {latestMaintenance ? <StatusBadge value={latestMaintenance.status} /> : null}
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {['Displaybruch', 'Display beschädigt', 'Gerät startet nicht'].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className="btn-secondary justify-start"
+              onClick={() => onCreateMaintenance({ assetName: asset.name, issue: preset, comment: '' })}
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
+
+        {latestMaintenance ? (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-900">{latestMaintenance.issue}</p>
+            <p className="mt-1 text-xs text-slate-600">{latestMaintenance.comment || 'Keine Zusatznotiz'}</p>
+            <p className="mt-1 text-xs text-slate-500">Gemeldet: {latestMaintenance.reportedAt}</p>
+            {isAdmin ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {latestMaintenance.status !== 'In Bearbeitung' ? (
+                  <button
+                    type="button"
+                    className="btn-secondary px-2 py-1 text-xs"
+                    onClick={() => onUpdateMaintenanceStatus(latestMaintenance.id, 'In Bearbeitung')}
+                  >
+                    In Bearbeitung
+                  </button>
+                ) : null}
+                {latestMaintenance.status !== 'Erledigt' ? (
+                  <button
+                    type="button"
+                    className="btn-primary px-2 py-1 text-xs"
+                    onClick={() => onUpdateMaintenanceStatus(latestMaintenance.id, 'Erledigt')}
+                  >
+                    Erledigt
+                  </button>
+                ) : null}
+                {latestMaintenance.status !== 'Offen' ? (
+                  <button
+                    type="button"
+                    className="btn-ghost px-2 py-1 text-xs"
+                    onClick={() => onUpdateMaintenanceStatus(latestMaintenance.id, 'Offen')}
+                  >
+                    Offen
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+            Für dieses Gerät liegt aktuell keine Defektmeldung vor.
+          </div>
+        )}
+      </article>
+
+      <article className="surface-card animate-fade-up">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
             <Wrench className="h-4 w-4" />
-            Zugehörige Tickets
+            Zugehörige Defektmeldungen
           </h3>
           <button
             type="button"
@@ -227,6 +302,28 @@ export function AssetDetailPage({
                   <StatusBadge value={item.status} />
                 </div>
                 <p className="mt-1 text-xs text-slate-600">{item.comment}</p>
+                {isAdmin ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {item.status !== 'In Bearbeitung' ? (
+                      <button
+                        type="button"
+                        className="btn-secondary px-2 py-1 text-xs"
+                        onClick={() => onUpdateMaintenanceStatus(item.id, 'In Bearbeitung')}
+                      >
+                        In Bearbeitung
+                      </button>
+                    ) : null}
+                    {item.status !== 'Erledigt' ? (
+                      <button
+                        type="button"
+                        className="btn-primary px-2 py-1 text-xs"
+                        onClick={() => onUpdateMaintenanceStatus(item.id, 'Erledigt')}
+                      >
+                        Erledigt
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

@@ -64,6 +64,7 @@ type WmsPageViewProps = {
     status?: MaintenanceItem['status'];
     location?: string;
   }) => Promise<void>;
+  onUpdateMaintenanceStatus: (id: string, status: MaintenanceItem['status']) => Promise<void>;
   onInviteUser: (payload: {
     name: string;
     email: string;
@@ -132,6 +133,7 @@ export function WmsPageView({
   onCheckoutReservation,
   onCancelReservation,
   onCreateMaintenance,
+  onUpdateMaintenanceStatus,
   onInviteUser,
   onEditUser,
   onDeleteUser,
@@ -193,6 +195,7 @@ export function WmsPageView({
     case 'assetDetail':
       return (
         <AssetDetailPage
+          activeRole={activeRole}
           asset={selectedAsset}
           activities={activities}
           maintenanceItems={maintenanceItems}
@@ -213,6 +216,9 @@ export function WmsPageView({
           }}
           onCreateMaintenance={(payload) => {
             void onCreateMaintenance(payload);
+          }}
+          onUpdateMaintenanceStatus={(id, status) => {
+            void onUpdateMaintenanceStatus(id, status);
           }}
           onOpenInventoryWithQuery={onOpenInventoryWithQuery}
         />
@@ -273,12 +279,16 @@ export function WmsPageView({
     case 'tickets':
       return (
         <MaintenancePage
+          activeRole={activeRole}
           maintenanceItems={maintenanceItems}
           assets={assets}
           onOpenAssetDetail={onOpenAssetDetail}
           onOpenInventoryWithQuery={onOpenInventoryWithQuery}
           onCreateMaintenance={(payload) => {
             void onCreateMaintenance(payload);
+          }}
+          onUpdateStatus={(id, status) => {
+            void onUpdateMaintenanceStatus(id, status);
           }}
         />
       );

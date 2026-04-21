@@ -739,12 +739,12 @@ export function AssetsPage({
                         onClick={() =>
                           onCreateMaintenance({
                             assetName: asset.name,
-                            issue: 'Defekt aus Inventar gemeldet',
+                            issue: 'Gerät defekt',
                             comment: '',
                           })
                         }
                       >
-                        Ticket
+                        Defekt
                       </button>
                       <button
                         type="button"
@@ -794,12 +794,12 @@ export function AssetsPage({
                 onClick={() =>
                   onCreateMaintenance({
                     assetName: asset.name,
-                    issue: 'Defekt aus Inventar gemeldet',
+                    issue: 'Gerät defekt',
                     comment: '',
                   })
                 }
               >
-                Ticket für dieses Asset
+                Defekt für dieses Asset
               </button>
               {canManageAssets ? (
                 <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1327,3 +1327,4 @@ export function AssetsPage({
     </section>
   );
 }
+

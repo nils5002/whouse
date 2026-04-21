@@ -180,6 +180,7 @@ function App() {
               onCheckoutReservation={controller.checkoutReservation}
               onCancelReservation={controller.cancelReservation}
               onCreateMaintenance={controller.createMaintenance}
+              onUpdateMaintenanceStatus={controller.updateMaintenanceStatus}
               onInviteUser={controller.inviteUser}
               onEditUser={controller.editUser}
               onDeleteUser={controller.adminDeleteUser}

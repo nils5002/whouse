@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, ClipboardCheck, Handshake, ScanLine, Undo2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, ClipboardCheck, Handshake, QrCode, ScanLine, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppDialog } from '../../components/dialogs/AppDialogProvider';
 import { listPlannings, type PlanningListItem } from '../../services/wmsApi';
@@ -24,6 +24,9 @@ type CheckinCheckoutPageProps = {
   onCheckin: (payload: { assetId: string; condition: string; returnedBy?: string; projectName?: string }) => void;
 };
 
+type Mode = 'checkout' | 'checkin';
+type FlowMessage = { kind: 'error' | 'success' | 'info'; text: string };
+
 function toIsoDate(value: Date): string {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, '0');
@@ -41,7 +44,10 @@ function parseProjectFromAsset(asset: Asset): string {
 }
 
 function parseProjectFromAssignedTo(asset: Asset): string {
-  const parts = asset.assignedTo.split('·').map((item) => item.trim()).filter(Boolean);
+  const parts = asset.assignedTo
+    .split('·')
+    .map((item) => item.trim())
+    .filter(Boolean);
   if (parts.length < 2) return '';
   return parts[parts.length - 1];
 }
@@ -59,6 +65,9 @@ export function CheckinCheckoutPage({
   const today = useMemo(() => toIsoDate(new Date()), []);
   const plusTwoDays = useMemo(() => toIsoDate(new Date(Date.now() + 2 * 86400000)), []);
 
+  const [mode, setMode] = useState<Mode>('checkout');
+  const [message, setMessage] = useState<FlowMessage | null>(null);
+
   const [checkoutAssetId, setCheckoutAssetId] = useState<string>(assets[0]?.id ?? '');
   const [checkoutAssignee, setCheckoutAssignee] = useState('');
   const [checkoutProject, setCheckoutProject] = useState('');
@@ -72,11 +81,16 @@ export function CheckinCheckoutPage({
   const [checkinReturnedBy, setCheckinReturnedBy] = useState('Lager');
   const [checkinProject, setCheckinProject] = useState('');
   const [checkinScan, setCheckinScan] = useState('');
-  const [scannerTarget, setScannerTarget] = useState<'checkout' | 'checkin' | null>(null);
+
+  const [lastAssignee, setLastAssignee] = useState('');
+  const [lastProject, setLastProject] = useState('');
+
+  const [scannerTarget, setScannerTarget] = useState<Mode | null>(null);
   const [showCheckoutOptions, setShowCheckoutOptions] = useState(false);
   const [showCheckinOptions, setShowCheckinOptions] = useState(false);
   const [planningProjects, setPlanningProjects] = useState<PlanningListItem[]>([]);
   const [preferAutoFocus, setPreferAutoFocus] = useState(false);
+
   const checkoutScanRef = useRef<HTMLInputElement | null>(null);
   const checkoutPersonRef = useRef<HTMLInputElement | null>(null);
   const checkoutProjectRef = useRef<HTMLInputElement | null>(null);
@@ -122,21 +136,27 @@ export function CheckinCheckoutPage({
 
   const checkoutAsset = assets.find((asset) => asset.id === checkoutAssetId) ?? null;
   const checkinAsset = assets.find((asset) => asset.id === checkinAssetId) ?? null;
+
   const checkoutContextProject = checkoutAsset
     ? parseProjectFromAsset(checkoutAsset) || parseProjectFromAssignedTo(checkoutAsset)
     : '';
+
   const checkinContextProject = checkinAsset
     ? parseProjectFromAsset(checkinAsset) || parseProjectFromAssignedTo(checkinAsset)
     : '';
 
-  const userOptions = users.map((user) => user.name);
+  const userOptions = useMemo(() => {
+    const names = users.map((user) => user.name);
+    if (lastAssignee.trim()) names.unshift(lastAssignee.trim());
+    return [...new Set(names)];
+  }, [users, lastAssignee]);
+
   const projectOptions = useMemo(() => {
     const options = planningProjects.map((planning) => `${planning.customerName} · ${planning.projectName}`);
-    if (projectContext.trim()) {
-      options.unshift(projectContext.trim());
-    }
+    if (projectContext.trim()) options.unshift(projectContext.trim());
+    if (lastProject.trim()) options.unshift(lastProject.trim());
     return [...new Set(options)];
-  }, [planningProjects, projectContext]);
+  }, [planningProjects, projectContext, lastProject]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -146,134 +166,183 @@ export function CheckinCheckoutPage({
 
   useEffect(() => {
     if (!preferAutoFocus) return;
-    focusElement(checkoutScanRef.current);
-  }, [preferAutoFocus]);
+    if (mode === 'checkout') {
+      focusElement(checkoutScanRef.current);
+      return;
+    }
+    focusElement(checkinScanRef.current);
+  }, [mode, preferAutoFocus]);
 
   useEffect(() => {
-    if (!checkoutProject.trim() && projectContext.trim()) {
-      setCheckoutProject(projectContext.trim());
+    if (!checkoutProject.trim()) {
+      if (projectContext.trim()) {
+        setCheckoutProject(projectContext.trim());
+        return;
+      }
+      if (lastProject.trim()) {
+        setCheckoutProject(lastProject.trim());
+      }
     }
-  }, [projectContext, checkoutProject]);
+  }, [projectContext, checkoutProject, lastProject]);
 
   useEffect(() => {
-    if (!checkinProject.trim() && projectContext.trim()) {
-      setCheckinProject(projectContext.trim());
+    if (!checkinProject.trim()) {
+      if (projectContext.trim()) {
+        setCheckinProject(projectContext.trim());
+        return;
+      }
+      if (lastProject.trim()) {
+        setCheckinProject(lastProject.trim());
+      }
     }
-  }, [projectContext, checkinProject]);
+  }, [projectContext, checkinProject, lastProject]);
 
-  const applyCheckoutScan = async (): Promise<boolean> => {
-    const asset = resolveAssetByScan(checkoutScan, assets);
+  useEffect(() => {
+    if (!checkoutAssignee.trim() && lastAssignee.trim()) {
+      setCheckoutAssignee(lastAssignee.trim());
+    }
+  }, [checkoutAssignee, lastAssignee]);
+
+  const applyCheckoutScan = async (rawScan?: string): Promise<boolean> => {
+    const scanValue = (rawScan ?? checkoutScan).trim();
+    if (!scanValue) {
+      setScannerTarget('checkout');
+      return false;
+    }
+
+    const asset = resolveAssetByScan(scanValue, assets);
     if (!asset) {
+      setMessage({
+        kind: 'error',
+        text: 'Unbekannter QR-Code. Bitte erneut scannen oder Inventarnummer prüfen.',
+      });
       await alert({
-        title: 'Scan fehlgeschlagen',
-        message: 'Unbekannter QR-Code. Bitte erneut scannen oder Inventarnummer nutzen.',
+        title: 'Unbekannter QR-Code',
+        message: 'Kein passendes Gerät gefunden.',
       });
       focusElement(checkoutScanRef.current);
       return false;
     }
+
+    setCheckoutScan(scanValue);
     setCheckoutAssetId(asset.id);
-    const parsedProject = parseProjectFromAsset(asset);
-    if (parsedProject && !checkoutProject) {
+    const parsedProject = parseProjectFromAsset(asset) || parseProjectFromAssignedTo(asset);
+    if (parsedProject) {
       setCheckoutProject(parsedProject);
     }
+
+    if (asset.status === 'Verliehen') {
+      setMessage({
+        kind: 'error',
+        text: `Gerät ist bereits verliehen an ${asset.assignedTo}.`,
+      });
+      focusElement(checkoutScanRef.current);
+      return true;
+    }
+
+    if (asset.status !== 'Verfügbar') {
+      setMessage({
+        kind: 'error',
+        text: `Gerät kann derzeit nicht ausgegeben werden (Status: ${asset.status}).`,
+      });
+      focusElement(checkoutScanRef.current);
+      return true;
+    }
+
+    setMessage({ kind: 'info', text: `${asset.name} erkannt. Schritt 2: Person wählen.` });
     focusElement(checkoutPersonRef.current);
     return true;
   };
 
-  const applyCheckinScan = async (): Promise<boolean> => {
-    const asset = resolveAssetByScan(checkinScan, assets);
+  const applyCheckinScan = async (rawScan?: string): Promise<boolean> => {
+    const scanValue = (rawScan ?? checkinScan).trim();
+    if (!scanValue) {
+      setScannerTarget('checkin');
+      return false;
+    }
+
+    const asset = resolveAssetByScan(scanValue, assets);
     if (!asset) {
+      setMessage({
+        kind: 'error',
+        text: 'Unbekannter QR-Code. Bitte erneut scannen oder Inventarnummer prüfen.',
+      });
       await alert({
-        title: 'Scan fehlgeschlagen',
-        message: 'Unbekannter QR-Code. Bitte erneut scannen oder Inventarnummer nutzen.',
+        title: 'Unbekannter QR-Code',
+        message: 'Kein passendes Gerät gefunden.',
       });
       focusElement(checkinScanRef.current);
       return false;
     }
+
+    setCheckinScan(scanValue);
     setCheckinAssetId(asset.id);
-    const parsedProject = parseProjectFromAsset(asset);
+
+    const parsedProject = parseProjectFromAsset(asset) || parseProjectFromAssignedTo(asset);
     if (parsedProject) {
       setCheckinProject(parsedProject);
     }
-    const shouldConfirmProject = !parsedProject && !checkinProject.trim() && !projectContext.trim();
-    focusElement(shouldConfirmProject ? checkinProjectRef.current : checkinSubmitRef.current);
+
+    if (asset.status === 'Verfügbar') {
+      setMessage({
+        kind: 'error',
+        text: 'Dieses Gerät ist bereits verfügbar und wurde schon zurückgenommen.',
+      });
+      focusElement(checkinScanRef.current);
+      return true;
+    }
+
+    if (asset.status !== 'Verliehen') {
+      setMessage({
+        kind: 'error',
+        text: `Rücknahme nicht möglich. Gerät ist aktuell im Status "${asset.status}".`,
+      });
+      focusElement(checkinScanRef.current);
+      return true;
+    }
+
+    setMessage({ kind: 'info', text: `${asset.name} erkannt. Rücknahme kann bestätigt werden.` });
+    focusElement(checkinSubmitRef.current);
     return true;
   };
 
-  const detectCheckout = () => {
-    if (checkoutScan.trim()) {
-      void applyCheckoutScan();
-      return;
-    }
-    setScannerTarget('checkout');
-  };
-
-  const detectCheckin = () => {
-    if (checkinScan.trim()) {
-      void applyCheckinScan();
-      return;
-    }
-    setScannerTarget('checkin');
-  };
-
   const onDetectedByCamera = (value: string) => {
-    if (scannerTarget === 'checkout') {
-      setCheckoutScan(value);
-      const asset = resolveAssetByScan(value, assets);
-      if (asset) {
-        setCheckoutAssetId(asset.id);
-        const parsedProject = parseProjectFromAsset(asset);
-        if (parsedProject) setCheckoutProject(parsedProject);
-        focusElement(checkoutPersonRef.current);
-      } else {
-        void alert({
-          title: 'Scan erkannt',
-          message: 'QR-Code erkannt, aber kein passendes Asset gefunden.',
-        });
-        focusElement(checkoutScanRef.current);
-      }
-    }
-    if (scannerTarget === 'checkin') {
-      setCheckinScan(value);
-      const asset = resolveAssetByScan(value, assets);
-      if (asset) {
-        setCheckinAssetId(asset.id);
-        const parsedProject = parseProjectFromAsset(asset);
-        if (parsedProject) setCheckinProject(parsedProject);
-        const shouldConfirmProject = !parsedProject && !checkinProject.trim() && !projectContext.trim();
-        focusElement(shouldConfirmProject ? checkinProjectRef.current : checkinSubmitRef.current);
-      } else {
-        void alert({
-          title: 'Scan erkannt',
-          message: 'QR-Code erkannt, aber kein passendes Asset gefunden.',
-        });
-        focusElement(checkinScanRef.current);
-      }
-    }
+    const target = scannerTarget;
     setScannerTarget(null);
+    if (!target) return;
+    if (target === 'checkout') {
+      void applyCheckoutScan(value);
+      return;
+    }
+    void applyCheckinScan(value);
   };
 
   const checkoutNow = async () => {
-    if (!checkoutAssetId) {
-      await alert({
-        title: 'Asset fehlt',
-        message: 'Bitte zuerst ein Asset für den Check-out auswählen.',
+    if (!checkoutAsset) {
+      setMessage({ kind: 'error', text: 'Bitte zuerst ein Gerät scannen oder auswählen.' });
+      focusElement(checkoutScanRef.current);
+      return;
+    }
+
+    if (!checkoutAssignee.trim()) {
+      setMessage({ kind: 'error', text: 'Bitte eine Person für die Ausgabe angeben.' });
+      focusElement(checkoutPersonRef.current);
+      return;
+    }
+
+    if (checkoutAsset.status === 'Verliehen') {
+      setMessage({
+        kind: 'error',
+        text: `Gerät ist bereits vergeben an ${checkoutAsset.assignedTo}.`,
       });
       focusElement(checkoutScanRef.current);
       return;
     }
-    if (!checkoutAssignee.trim()) {
-      await alert({
-        title: 'Person fehlt',
-        message: 'Bitte Person/Mitarbeiter angeben.',
-      });
-      focusElement(checkoutPersonRef.current);
-      return;
-    }
-    if (checkoutAsset?.status === 'Verliehen') {
-      await alert({
-        title: 'Gerät bereits vergeben',
-        message: `Dieses Gerät ist aktuell bereits auf "${checkoutAsset.assignedTo}" gebucht.`,
+
+    if (checkoutAsset.status !== 'Verfügbar') {
+      setMessage({
+        kind: 'error',
+        text: `Gerät kann nicht ausgegeben werden (Status: ${checkoutAsset.status}).`,
       });
       focusElement(checkoutScanRef.current);
       return;
@@ -283,79 +352,137 @@ export function CheckinCheckoutPage({
       checkoutProject.trim() ||
       projectContext.trim() ||
       checkoutContextProject ||
+      lastProject.trim() ||
       projectOptions[0] ||
       'Allgemeiner Einsatz';
 
     onCheckout({
-      assetId: checkoutAssetId,
+      assetId: checkoutAsset.id,
       assignee: checkoutAssignee.trim(),
       projectName: normalizedProject,
       bookedBy: checkoutBookedBy.trim() || 'Lager',
       dueDate: checkoutDueDate,
       note: checkoutNote.trim(),
     });
+
+    setLastAssignee(checkoutAssignee.trim());
+    setLastProject(normalizedProject);
     setCheckoutProject(normalizedProject);
-    setCheckoutAssignee('');
     setCheckoutNote('');
     setCheckoutScan('');
+    setMessage({ kind: 'success', text: `${checkoutAsset.name} wurde ausgegeben.` });
     focusElement(checkoutScanRef.current);
   };
 
   const checkinNow = async () => {
-    if (!checkinAssetId) {
-      await alert({
-        title: 'Asset fehlt',
-        message: 'Bitte zuerst ein Asset für den Check-in auswählen.',
+    if (!checkinAsset) {
+      setMessage({ kind: 'error', text: 'Bitte zuerst ein Gerät scannen oder auswählen.' });
+      focusElement(checkinScanRef.current);
+      return;
+    }
+
+    if (checkinAsset.status === 'Verfügbar') {
+      setMessage({
+        kind: 'error',
+        text: 'Dieses Gerät wurde bereits zurückgenommen.',
       });
       focusElement(checkinScanRef.current);
       return;
     }
-    if (checkinAsset?.status === 'Verfügbar') {
-      await alert({
-        title: 'Bereits zurückgegeben',
-        message: 'Dieses Gerät ist bereits als verfügbar markiert.',
+
+    if (checkinAsset.status !== 'Verliehen') {
+      setMessage({
+        kind: 'error',
+        text: `Rücknahme nicht erlaubt für Status "${checkinAsset.status}".`,
       });
       focusElement(checkinScanRef.current);
       return;
     }
+
     if (checkinContextProject && checkinProject.trim() && checkinProject.trim() !== checkinContextProject) {
-      await alert({
-        title: 'Falsches Projekt',
-        message: `Das Gerät ist aktuell für "${checkinContextProject}" verbucht.`,
+      setMessage({
+        kind: 'error',
+        text: `Projekt passt nicht. Gerät ist aktuell für "${checkinContextProject}" verbucht.`,
       });
       focusElement(checkinProjectRef.current);
       return;
     }
 
+    const resolvedProject = checkinProject.trim() || checkinContextProject || projectContext.trim() || lastProject.trim();
+
     onCheckin({
-      assetId: checkinAssetId,
+      assetId: checkinAsset.id,
       condition: checkinCondition.trim() || 'Zustand geprüft.',
       returnedBy: checkinReturnedBy.trim() || 'Lager',
-      projectName: checkinProject.trim() || checkinContextProject || projectContext.trim(),
+      projectName: resolvedProject,
     });
+
+    if (resolvedProject) {
+      setLastProject(resolvedProject);
+      setCheckinProject(resolvedProject);
+    }
     setCheckinCondition('');
     setCheckinScan('');
+    setMessage({ kind: 'success', text: `${checkinAsset.name} wurde zurückgenommen.` });
     focusElement(checkinScanRef.current);
   };
 
+  const messageClass =
+    message?.kind === 'error'
+      ? 'border-rose-200 bg-rose-50 text-rose-800'
+      : message?.kind === 'success'
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+        : 'border-sky-200 bg-sky-50 text-sky-800';
+
   return (
-    <section className="space-y-5">
+    <section className="space-y-5 pb-24 sm:pb-6">
       <div>
         <p className="page-kicker">Ein-/Auslagerung</p>
-        <h2 className="page-title">Schnellmodus Ausgabe & Rückgabe</h2>
-        <p className="page-subtitle">
-          Primärfluss: Scan → Person → Projekt → Buchen. Zusätzliche Angaben nur bei Bedarf.
-        </p>
+        <h2 className="page-title">Schnellflow mit QR</h2>
+        <p className="page-subtitle">Klare Trennung: Ausgabe und Rücknahme als eigene Modi.</p>
+      </div>
+
+      <div className="surface-card">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition ${
+              mode === 'checkout'
+                ? 'border-brand-300 bg-brand-50 text-brand-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+            onClick={() => {
+              setMode('checkout');
+              setMessage(null);
+            }}
+          >
+            <Handshake className="h-4 w-4" />
+            Ausgabe (Check-out)
+          </button>
+          <button
+            type="button"
+            className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition ${
+              mode === 'checkin'
+                ? 'border-slate-400 bg-slate-100 text-slate-900'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+            onClick={() => {
+              setMode('checkin');
+              setMessage(null);
+            }}
+          >
+            <Undo2 className="h-4 w-4" />
+            Rücknahme (Check-in)
+          </button>
+        </div>
       </div>
 
       {activeRole === 'Mitarbeiter' && !projectContext.trim() ? (
         <article className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           <p className="font-semibold">Projektkontext fehlt</p>
-          <p className="mt-1">
-            Für saubere Zuordnung zuerst Projektkontext setzen oder im Schritt 3 ein Projekt wählen.
-          </p>
+          <p className="mt-1">Setze den Projektkontext, damit Ausgabe und Rücknahme direkt korrekt zugeordnet werden.</p>
           <label className="field mt-2">
-            Projektkontext (schnell setzen)
+            Projektkontext
             <input
               className="field-input bg-white"
               placeholder="z. B. Kunde X · Akkreditierung 2026"
@@ -366,172 +493,179 @@ export function CheckinCheckoutPage({
         </article>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <article className="surface-card animate-fade-up">
-          <div className="mb-4 flex items-center justify-between">
+      {message ? <div className={`rounded-xl border px-3 py-2 text-sm ${messageClass}`}>{message.text}</div> : null}
+
+      {mode === 'checkout' ? (
+        <article className="surface-card animate-fade-up space-y-4">
+          <div className="flex items-center justify-between">
             <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
               <Handshake className="h-4 w-4 text-brand-700" />
-              Check-out
+              Ausgabe in 4 Schritten
             </h3>
             <span className="status-chip border-brand-200 bg-brand-50 text-brand-700">
               <span className="status-dot bg-brand-600" />
-              Schnellmodus
+              Scan zuerst
             </span>
           </div>
 
-          <div className="space-y-4">
-            <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Schritt 1</p>
-              <label className="field mt-1">
-                Gerät scannen
-                <div className="flex gap-2">
-                  <input
-                    ref={checkoutScanRef}
-                    autoFocus={preferAutoFocus}
-                    className="field-input"
-                    placeholder="Scan-Text einfügen oder leer lassen für Kamera"
-                    value={checkoutScan}
-                    onChange={(event) => setCheckoutScan(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter') return;
-                      event.preventDefault();
-                      void applyCheckoutScan();
-                    }}
-                  />
-                  <button type="button" className="btn-secondary px-3 text-xs" onClick={detectCheckout}>
-                    <ScanLine className="h-3.5 w-3.5" />
-                    Scannen
-                  </button>
-                </div>
-              </label>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 2</p>
-              <label className="field mt-1">
-                Person / Mitarbeiter
+          <div className="rounded-xl border border-brand-100 bg-brand-50/70 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Schritt 1</p>
+            <label className="field mt-1">
+              Gerät scannen
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
                 <input
-                  ref={checkoutPersonRef}
-                  list="checkout-person-options"
+                  ref={checkoutScanRef}
+                  autoFocus={preferAutoFocus && mode === 'checkout'}
                   className="field-input"
-                  placeholder="z. B. Max Mustermann"
-                  value={checkoutAssignee}
-                  onChange={(event) => setCheckoutAssignee(event.target.value)}
+                  placeholder="QR-Code oder Inventarnummer"
+                  value={checkoutScan}
+                  onChange={(event) => setCheckoutScan(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key !== 'Enter') return;
                     event.preventDefault();
-                    focusElement(checkoutProjectRef.current);
+                    void applyCheckoutScan();
                   }}
                 />
-                <datalist id="checkout-person-options">
-                  {userOptions.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
-              </label>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 3</p>
-              <label className="field mt-1">
-                Projekt
-                <input
-                  ref={checkoutProjectRef}
-                  list="checkout-project-options"
-                  className="field-input"
-                  placeholder="Projekt wählen oder eintragen"
-                  value={checkoutProject}
-                  onChange={(event) => setCheckoutProject(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter') return;
-                    event.preventDefault();
-                    focusElement(checkoutSubmitRef.current);
-                  }}
-                />
-                <datalist id="checkout-project-options">
-                  {projectOptions.map((project) => (
-                    <option key={project} value={project} />
-                  ))}
-                </datalist>
-              </label>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 4</p>
-              <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-600">
-                <span>{checkoutAsset?.name ?? 'Kein Gerät ausgewählt'}</span>
-                {checkoutAsset ? <StatusBadge value={checkoutAsset.status} /> : null}
+                <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void applyCheckoutScan()}>
+                  <ScanLine className="h-4 w-4" />
+                  Scannen
+                </button>
+                <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => setScannerTarget('checkout')}>
+                  <QrCode className="h-4 w-4" />
+                  Kamera
+                </button>
               </div>
-              <button ref={checkoutSubmitRef} className="btn-primary mt-3 w-full" onClick={() => void checkoutNow()}>
-                <Handshake className="h-4 w-4" />
-                Jetzt ausgeben
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className="btn-secondary w-full justify-center"
-              onClick={() => setShowCheckoutOptions((prev) => !prev)}
-            >
-              {showCheckoutOptions ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              {showCheckoutOptions ? 'Weniger Optionen' : 'Mehr Optionen'}
-            </button>
-
-            {showCheckoutOptions ? (
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <label className="field">
-                  Asset auswählen (fallback)
-                  <select
-                    className="field-input"
-                    value={checkoutAssetId}
-                    onChange={(event) => setCheckoutAssetId(event.target.value)}
-                  >
-                    {assets.map((asset) => (
-                      <option key={asset.id} value={asset.id}>
-                        {asset.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="field">
-                    Geplante Rückgabe
-                    <input
-                      type="date"
-                      className="field-input"
-                      value={checkoutDueDate}
-                      onChange={(event) => setCheckoutDueDate(event.target.value)}
-                    />
-                  </label>
-                  <label className="field">
-                    Gebucht durch
-                    <input
-                      className="field-input"
-                      value={checkoutBookedBy}
-                      onChange={(event) => setCheckoutBookedBy(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <label className="field">
-                  Notiz
-                  <textarea
-                    className="field-input min-h-[96px]"
-                    placeholder="Transporthinweise, Zubehör, Besonderheiten"
-                    value={checkoutNote}
-                    onChange={(event) => setCheckoutNote(event.target.value)}
-                  />
-                </label>
-              </div>
-            ) : null}
+            </label>
           </div>
-        </article>
 
-        <article className="surface-card animate-fade-up">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 2</p>
+            <label className="field mt-1">
+              Person
+              <input
+                ref={checkoutPersonRef}
+                list="checkout-person-options"
+                className="field-input"
+                placeholder="z. B. Max Mustermann"
+                value={checkoutAssignee}
+                onChange={(event) => setCheckoutAssignee(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return;
+                  event.preventDefault();
+                  focusElement(checkoutProjectRef.current);
+                }}
+              />
+              <datalist id="checkout-person-options">
+                {userOptions.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+            </label>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 3</p>
+            <label className="field mt-1">
+              Projekt
+              <input
+                ref={checkoutProjectRef}
+                list="checkout-project-options"
+                className="field-input"
+                placeholder="Projekt wählen oder eintragen"
+                value={checkoutProject}
+                onChange={(event) => setCheckoutProject(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return;
+                  event.preventDefault();
+                  focusElement(checkoutSubmitRef.current);
+                }}
+              />
+              <datalist id="checkout-project-options">
+                {projectOptions.map((project) => (
+                  <option key={project} value={project} />
+                ))}
+              </datalist>
+            </label>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 4</p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold text-slate-900">{checkoutAsset?.name ?? 'Kein Gerät ausgewählt'}</p>
+              {checkoutAsset ? <StatusBadge value={checkoutAsset.status} /> : null}
+            </div>
+            <button
+              ref={checkoutSubmitRef}
+              className="btn-primary mt-3 hidden w-full sm:inline-flex"
+              onClick={() => void checkoutNow()}
+            >
+              <Handshake className="h-4 w-4" />
+              Jetzt ausgeben
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className="btn-secondary w-full justify-center"
+            onClick={() => setShowCheckoutOptions((prev) => !prev)}
+          >
+            {showCheckoutOptions ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {showCheckoutOptions ? 'Weniger Optionen' : 'Mehr Optionen'}
+          </button>
+
+          {showCheckoutOptions ? (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <label className="field">
+                Asset auswählen (Fallback)
+                <select
+                  className="field-input"
+                  value={checkoutAssetId}
+                  onChange={(event) => setCheckoutAssetId(event.target.value)}
+                >
+                  {assets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="field">
+                  Geplante Rückgabe
+                  <input
+                    type="date"
+                    className="field-input"
+                    value={checkoutDueDate}
+                    onChange={(event) => setCheckoutDueDate(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  Ausgabe durch
+                  <input
+                    className="field-input"
+                    value={checkoutBookedBy}
+                    onChange={(event) => setCheckoutBookedBy(event.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="field">
+                Notiz
+                <textarea
+                  className="field-input min-h-[96px]"
+                  placeholder="Optionaler Hinweis"
+                  value={checkoutNote}
+                  onChange={(event) => setCheckoutNote(event.target.value)}
+                />
+              </label>
+            </div>
+          ) : null}
+        </article>
+      ) : (
+        <article className="surface-card animate-fade-up space-y-4">
+          <div className="flex items-center justify-between">
             <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
               <Undo2 className="h-4 w-4 text-slate-700" />
-              Check-in
+              Rücknahme in 3 Schritten
             </h3>
             <span className="status-chip border-slate-200 bg-slate-50 text-slate-700">
               <span className="status-dot bg-slate-600" />
@@ -539,57 +673,96 @@ export function CheckinCheckoutPage({
             </span>
           </div>
 
-          <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 1</p>
-              <label className="field mt-1">
-                Gerät scannen
-                <div className="flex gap-2">
-                  <input
-                    ref={checkinScanRef}
-                    className="field-input"
-                    placeholder="Scan-Text einfügen oder leer lassen für Kamera"
-                    value={checkinScan}
-                    onChange={(event) => setCheckinScan(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter') return;
-                      event.preventDefault();
-                      void applyCheckinScan();
-                    }}
-                  />
-                  <button type="button" className="btn-secondary px-3 text-xs" onClick={detectCheckin}>
-                    <ScanLine className="h-3.5 w-3.5" />
-                    Scannen
-                  </button>
-                </div>
-              </label>
-            </div>
-
-            {checkinAsset ? (
-              <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Schritt 2</p>
-                <p className="mt-1 font-semibold text-slate-900">{checkinAsset.name}</p>
-                <p className="mt-1 text-slate-700">Aktuell gebucht auf: {checkinAsset.assignedTo}</p>
-                <p className="text-slate-700">Projekt: {checkinContextProject || checkinProject || projectContext || '-'}</p>
-                <p className="mt-1 text-xs text-slate-600">Status: <StatusBadge value={checkinAsset.status} /></p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 1</p>
+            <label className="field mt-1">
+              Gerät scannen
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
+                <input
+                  ref={checkinScanRef}
+                  autoFocus={preferAutoFocus && mode === 'checkin'}
+                  className="field-input"
+                  placeholder="QR-Code oder Inventarnummer"
+                  value={checkinScan}
+                  onChange={(event) => setCheckinScan(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return;
+                    event.preventDefault();
+                    void applyCheckinScan();
+                  }}
+                />
+                <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void applyCheckinScan()}>
+                  <ScanLine className="h-4 w-4" />
+                  Scannen
+                </button>
+                <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => setScannerTarget('checkin')}>
+                  <QrCode className="h-4 w-4" />
+                  Kamera
+                </button>
               </div>
-            ) : null}
+            </label>
+          </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 3</p>
-              <label className="field mt-1">
-                Projekt (optional bestätigen)
+          <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Schritt 2</p>
+            {checkinAsset ? (
+              <>
+                <p className="mt-1 font-semibold text-slate-900">{checkinAsset.name}</p>
+                <p className="mt-1 text-slate-700">Aktuell zugeordnet: {checkinAsset.assignedTo}</p>
+                <p className="text-slate-700">Projekt: {checkinContextProject || checkinProject || projectContext || '-'}</p>
+                <div className="mt-2 inline-flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Status</span>
+                  <StatusBadge value={checkinAsset.status} />
+                </div>
+              </>
+            ) : (
+              <p className="mt-1 text-slate-600">Noch kein Gerät gescannt.</p>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 3</p>
+            <button ref={checkinSubmitRef} className="btn-dark mt-2 hidden w-full sm:inline-flex" onClick={() => void checkinNow()}>
+              <ClipboardCheck className="h-4 w-4" />
+              Rücknahme bestätigen
+            </button>
+            <p className="mt-2 text-xs text-slate-500">Rückgabedatum: {today}</p>
+          </div>
+
+          <button
+            type="button"
+            className="btn-secondary w-full justify-center"
+            onClick={() => setShowCheckinOptions((prev) => !prev)}
+          >
+            {showCheckinOptions ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {showCheckinOptions ? 'Weniger Optionen' : 'Mehr Optionen'}
+          </button>
+
+          {showCheckinOptions ? (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <label className="field">
+                Asset auswählen (Fallback)
+                <select
+                  className="field-input"
+                  value={checkinAssetId}
+                  onChange={(event) => setCheckinAssetId(event.target.value)}
+                >
+                  {assets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Projekt (optional)
                 <input
                   ref={checkinProjectRef}
                   list="checkin-project-options"
                   className="field-input"
+                  placeholder="Projekt bestätigen"
                   value={checkinProject}
                   onChange={(event) => setCheckinProject(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter') return;
-                    event.preventDefault();
-                    focusElement(checkinSubmitRef.current);
-                  }}
                 />
                 <datalist id="checkin-project-options">
                   {projectOptions.map((project) => (
@@ -597,68 +770,45 @@ export function CheckinCheckoutPage({
                   ))}
                 </datalist>
               </label>
+              <label className="field">
+                Rücknahme durch
+                <input
+                  className="field-input"
+                  value={checkinReturnedBy}
+                  onChange={(event) => setCheckinReturnedBy(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                Notiz
+                <textarea
+                  className="field-input min-h-[96px]"
+                  placeholder="Optionaler Zustandshinweis"
+                  value={checkinCondition}
+                  onChange={(event) => setCheckinCondition(event.target.value)}
+                />
+              </label>
             </div>
-
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">Schritt 4</p>
-              <button ref={checkinSubmitRef} className="btn-dark mt-2 w-full" onClick={() => void checkinNow()}>
-                <ClipboardCheck className="h-4 w-4" />
-                Rücknahme bestätigen
-              </button>
-              <p className="mt-2 text-xs text-slate-500">Rückgabedatum: {today}</p>
-            </div>
-
-            <button
-              type="button"
-              className="btn-secondary w-full justify-center"
-              onClick={() => setShowCheckinOptions((prev) => !prev)}
-            >
-              {showCheckinOptions ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              {showCheckinOptions ? 'Weniger Optionen' : 'Mehr Optionen'}
-            </button>
-
-            {showCheckinOptions ? (
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <label className="field">
-                  Asset auswählen (fallback)
-                  <select
-                    className="field-input"
-                    value={checkinAssetId}
-                    onChange={(event) => setCheckinAssetId(event.target.value)}
-                  >
-                    {assets.map((asset) => (
-                      <option key={asset.id} value={asset.id}>
-                        {asset.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  Rücknahme durch
-                  <input
-                    className="field-input"
-                    value={checkinReturnedBy}
-                    onChange={(event) => setCheckinReturnedBy(event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  Rücknahme-Notiz
-                  <textarea
-                    className="field-input min-h-[96px]"
-                    placeholder="Kurzer Zustandsbericht (optional)"
-                    value={checkinCondition}
-                    onChange={(event) => setCheckinCondition(event.target.value)}
-                  />
-                </label>
-              </div>
-            ) : null}
-          </div>
+          ) : null}
         </article>
+      )}
+
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 p-3 backdrop-blur sm:hidden">
+        {mode === 'checkout' ? (
+          <button className="btn-primary w-full py-3 text-base" onClick={() => void checkoutNow()}>
+            <Handshake className="h-5 w-5" />
+            Jetzt ausgeben
+          </button>
+        ) : (
+          <button className="btn-dark w-full py-3 text-base" onClick={() => void checkinNow()}>
+            <ClipboardCheck className="h-5 w-5" />
+            Rücknahme bestätigen
+          </button>
+        )}
       </div>
 
       {scannerTarget ? (
         <QrScannerDialog
-          title={scannerTarget === 'checkout' ? 'Check-out QR scannen' : 'Check-in QR scannen'}
+          title={scannerTarget === 'checkout' ? 'Ausgabe: QR scannen' : 'Rücknahme: QR scannen'}
           onDetected={onDetectedByCamera}
           onClose={() => setScannerTarget(null)}
         />
