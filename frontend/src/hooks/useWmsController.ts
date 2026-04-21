@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { getAssetQrCode } from '../asset-ui/qr';
 import type {
@@ -26,6 +26,7 @@ import {
   upsertUser,
 } from '../services/wmsApi';
 import { useAppDialog } from '../components/dialogs/AppDialogProvider';
+import { canonicalPathForPage, normalizePathname, resolvePageFromPath } from '../routing/appRoutes';
 import { useTheme } from './useTheme';
 
 type CreateMaintenancePayload = {
@@ -115,7 +116,10 @@ export function useWmsController(options: UseWmsControllerOptions) {
   const { activeRole, isAuthenticated } = options;
   const { theme, toggleTheme } = useTheme();
   const { alert, prompt } = useAppDialog();
-  const [activePage, setActivePage] = useState<AppPage>('dashboard');
+  const [activePage, setActivePageState] = useState<AppPage>(() => {
+    if (typeof window === 'undefined') return 'dashboard';
+    return resolvePageFromPath(window.location.pathname).page;
+  });
   const [projectContext, setProjectContextState] = useState<string>(accessContext.projectContext ?? '');
   const [search, setSearch] = useState('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -128,6 +132,19 @@ export function useWmsController(options: UseWmsControllerOptions) {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [wmsError, setWmsError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const setActivePage = useCallback((page: AppPage, options?: { replace?: boolean }) => {
+    setActivePageState(page);
+    if (typeof window === 'undefined') return;
+    const currentPath = normalizePathname(window.location.pathname);
+    const targetPath = canonicalPathForPage(page);
+    if (currentPath === targetPath) return;
+    if (options?.replace) {
+      window.history.replaceState(null, '', targetPath);
+      return;
+    }
+    window.history.pushState(null, '', targetPath);
+  }, []);
 
   const loadWms = async () => {
     try {
@@ -190,6 +207,25 @@ export function useWmsController(options: UseWmsControllerOptions) {
       window.clearInterval(intervalId);
     };
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const syncFromBrowserPath = () => {
+      const resolved = resolvePageFromPath(window.location.pathname);
+      setActivePageState(resolved.page);
+
+      if (window.location.pathname === resolved.canonicalPath) return;
+      const suffix = `${window.location.search}${window.location.hash}`;
+      window.history.replaceState(null, '', `${resolved.canonicalPath}${suffix}`);
+    };
+
+    syncFromBrowserPath();
+    window.addEventListener('popstate', syncFromBrowserPath);
+    return () => {
+      window.removeEventListener('popstate', syncFromBrowserPath);
+    };
+  }, []);
 
   const selectedAsset = useMemo(
     () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
