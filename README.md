@@ -1,6 +1,6 @@
-# cloud_web
+# ERP-System
 
-Professionelle Fullstack-Struktur fuer iCloud-Sorter + WMS mit FastAPI, SQLAlchemy, Alembic und React/Vite.
+Die Anwendung ist eine Hardware-Warenwirtschaft (Warehouse-System).
 
 ## Architektur (aktuell)
 
